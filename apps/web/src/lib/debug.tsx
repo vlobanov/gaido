@@ -85,7 +85,10 @@ export function DebugBridge() {
   const cancel = trpc.nodes.cancel.useMutation();
   const deleteNode = trpc.nodes.delete.useMutation();
 
-  // Subscribe to all events globally (no runId filter).
+  // Single global subscription serves two jobs:
+  // 1. Buffer events for window.__gaido tests.
+  // 2. Invalidate nodes.list on phase boundaries so graph cards update live
+  //    without polling. tanstack-query coalesces concurrent invalidations.
   trpc.events.subscribe.useSubscription(
     {},
     {
@@ -94,6 +97,11 @@ export function DebugBridge() {
         buf.push(event);
         if (buf.length > EVENT_BUFFER_MAX) {
           buf.splice(0, buf.length - EVENT_BUFFER_MAX);
+        }
+
+        const kind = event.payload.kind;
+        if (kind === 'phase_start' || kind === 'phase_end' || kind === 'error') {
+          void utils.nodes.list.invalidate();
         }
       },
     }

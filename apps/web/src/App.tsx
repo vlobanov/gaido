@@ -9,9 +9,9 @@ import { DebugBridge } from './lib/debug';
 export function App() {
   const selectedNodeId = useUiStore((s) => s.selectedNodeId);
 
-  const nodesQuery = trpc.nodes.list.useQuery(undefined, {
-    refetchInterval: 5_000,
-  });
+  // Live updates come from the global event subscription in <DebugBridge />,
+  // which invalidates this query on phase_start/phase_end/error events.
+  const nodesQuery = trpc.nodes.list.useQuery();
   const nodes = nodesQuery.data ?? [];
 
   const isInitialLoad = nodesQuery.isLoading && !nodesQuery.data;

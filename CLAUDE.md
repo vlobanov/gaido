@@ -102,7 +102,6 @@ Console should stay clean — verify with `mcp__playwright__browser_console_mess
 
 ## Known leftover issues
 
-- **Graph cards don't update live.** The sidebar updates from WS events, but graph card statuses only refresh on the 5s `refetchInterval` on `nodes.list`. Fix: invalidate `nodes.list` on phase boundary events, or patch status directly into the cache. (Spotted via Playwright timeline showing only `coding`→`failed` for a retry, skipping rendering/critiquing.)
 - **`nodes.get` input naming inconsistency.** Uses `{ id }` while every other nodes procedure uses `{ nodeId }`. One-line fix server-side + one site web-side.
 - **`tsconfig.json` overrides `declaration: false`** in `apps/cli` and `apps/web` to work around tRPC v11's non-portable inferred types. Fine for app packages; would matter only when publishing as libraries.
 - **`pnpm dev` parallel mode** requires `apps/web/.env.local` with `VITE_GAIDO_URL=http://localhost:4288` — not auto-created on first install.
