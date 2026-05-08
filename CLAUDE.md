@@ -108,6 +108,12 @@ Console should stay clean — verify with `mcp__playwright__browser_console_mess
 
 ## What's still ahead
 
-Real critic adapter (Gemini with Claude-vision-on-frames fallback); real renderer adapter (Playwright + ffmpeg); replace stub render/critique phases in the orchestrator; artifact serving so the "Video will appear here" placeholder gets a real video; auto-spawn-N variations (v0.5).
+Real critic adapter (Gemini with Claude-vision-on-frames fallback); replace the stub critique fake in the orchestrator with a real critic.critique() call once the adapter lands; auto-spawn-N variations (v0.5).
 
-The Claude Code coder adapter is shipped (`@gaido/adapter-claude-code`, exported from `gaido` as `claudeCodeCoder`). Default model `claude-sonnet-4-6`, default `permissionMode: 'bypassPermissions'`. Sessions persist on `nodes.session_id` and resume via `--resume <sessionId>` on retry. Coder writes into the worktree; orchestrator stages + commits the diff and records `runs.commit_sha`.
+Shipped:
+
+- **Coder.** `@gaido/adapter-claude-code` exports `claudeCodeCoder`. Default model `claude-sonnet-4-6`, default `permissionMode: 'bypassPermissions'`. Sessions persist on `nodes.session_id` and resume via `--resume <sessionId>` on retry. Coder writes into the worktree; orchestrator stages + commits the diff and records `runs.commit_sha`.
+- **Renderer.** `@gaido/adapter-playwright-renderer` exports `playwrightRenderer`. Headless Chromium loads `index.html` from the worktree via a temporary localhost http server, fake clock (`page.clock.install` + `fastForward`) drives deterministic frame capture, ffmpeg encodes to mp4 (`-c:v libx264 -pix_fmt yuv420p -movflags +faststart`). Artifacts land at `<projectDir>/runs/.artifacts/<runId>/{video.mp4,thumbnail.png}`; the orchestrator inserts artifact rows and points `runs.video_artifact_id` / `runs.thumbnail_artifact_id` at them. Fastify serves them at `/artifacts/:id`. UI's `OutputPanel` (in `Sidebar.tsx`) renders `<video>` when present, else `<img>` thumbnail, else placeholder.
+- **Skeleton convention.** The skeleton's animation `<script>` MUST be `type="module"` — pixi `app.init()` is async and we use top-level await. Default `init` template enforces this; `skeleton/CLAUDE.md` should remind the agent not to drop the attribute.
+
+System deps (only if using these adapters): `claude` CLI on PATH (coder), `ffmpeg` on PATH (renderer), Chromium auto-downloaded by `playwright` postinstall.

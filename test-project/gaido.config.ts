@@ -1,12 +1,12 @@
-import { defineConfig, claudeCodeCoder, stubCritic, stubRenderer } from 'gaido';
+import { defineConfig, claudeCodeCoder, playwrightRenderer, stubCritic } from 'gaido';
 
 export default defineConfig({
   name: 'My Gaido Project',
 
   coder: claudeCodeCoder(),
-  // Critic and renderer are still stubs.
+  renderer: playwrightRenderer(),
+  // Critic is still a stub.
   critic: stubCritic(),
-  renderer: stubRenderer(),
 
   render: {
     width: 1024,

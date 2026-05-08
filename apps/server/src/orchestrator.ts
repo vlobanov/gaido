@@ -1,4 +1,10 @@
-import { schema, runId as newRunId } from '@gaido/core';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  schema,
+  runId as newRunId,
+  artifactId as newArtifactId,
+} from '@gaido/core';
 import type { Run } from '@gaido/core/schema';
 import type {
   AdapterConfigSnapshot,
@@ -14,12 +20,14 @@ import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
 import type { ResolvedConfig } from './config-loader.js';
 import type { WorkspaceManager } from './workspace.js';
+import type { Paths } from './paths.js';
 
 interface OrchestratorDeps {
   db: Db;
   eventBus: EventBus;
   config: ResolvedConfig;
   workspace: WorkspaceManager;
+  paths: Paths;
 }
 
 /**
@@ -34,6 +42,7 @@ export class Orchestrator {
   private readonly eventBus: EventBus;
   private readonly config: ResolvedConfig;
   private readonly workspace: WorkspaceManager;
+  private readonly paths: Paths;
   private readonly active = new Map<string, AbortController>();
 
   constructor(deps: OrchestratorDeps) {
@@ -41,6 +50,7 @@ export class Orchestrator {
     this.eventBus = deps.eventBus;
     this.config = deps.config;
     this.workspace = deps.workspace;
+    this.paths = deps.paths;
   }
 
   /** Insert a queued run for `nodeId`, kick off async execution. */
@@ -171,18 +181,38 @@ export class Orchestrator {
 
       // Rendering phase.
       await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
-        const totalFrames = 150;
-        // 6 progress events spaced 250ms = 1.5s.
-        const ticks = 6;
-        for (let i = 1; i <= ticks; i++) {
-          await sleep(250, signal);
-          this.maybeFail('rendering');
-          const frame = Math.round((i / ticks) * totalFrames);
-          this.eventBus.publish(runId, {
-            kind: 'render_progress',
-            frame,
-            totalFrames,
-          });
+        const workdir = this.workspace.workspacePath(nodeId);
+        const outputDir = path.join(this.paths.artifactsDir, runId);
+        fs.mkdirSync(outputDir, { recursive: true });
+
+        const result = await this.config.renderer.render(
+          {
+            duration: this.config.render.duration,
+            fps: this.config.render.fps,
+            width: this.config.render.width,
+            height: this.config.render.height,
+          },
+          {
+            nodeId,
+            runId,
+            workdir,
+            outputDir,
+            abortSignal: signal,
+            logger: makeLogger('renderer'),
+            emit: (event) => this.eventBus.publish(runId, event),
+          }
+        );
+
+        if (result.videoPath) {
+          this.recordArtifact(runId, 'video', result.videoPath, 'video/mp4');
+        }
+        if (result.thumbnailPath) {
+          this.recordArtifact(
+            runId,
+            'thumbnail',
+            result.thumbnailPath,
+            mimeFromPath(result.thumbnailPath)
+          );
         }
       });
 
@@ -298,18 +328,59 @@ export class Orchestrator {
       .run();
   }
 
-  /**
-   * 10% chance per phase to inject a synthetic failure. Throws an error tagged
-   * with the current phase; the surrounding `runPhase` will translate it.
-   */
-  private maybeFail(phase: RunPhase): void {
-    if (Math.random() < 0.1 / 5) {
-      // 0.1/5 per token-tick keeps overall failure ~10% per phase.
-      const message = `Synthetic ${phase} failure (stub orchestrator)`;
-      const err = new Error(message);
-      attachPhase(err, phase);
-      throw err;
-    }
+  private recordArtifact(
+    runId: string,
+    kind: 'code' | 'video' | 'thumbnail' | 'frame' | 'log',
+    filePath: string,
+    mime: string
+  ): void {
+    const id = newArtifactId();
+    const stat = fs.statSync(filePath);
+    const now = Date.now();
+    this.db
+      .insert(schema.artifacts)
+      .values({
+        id,
+        runId,
+        kind,
+        path: filePath,
+        mime,
+        sizeBytes: stat.size,
+        createdAt: now,
+      })
+      .run();
+    const update: Partial<typeof schema.runs.$inferInsert> = { updatedAt: now };
+    if (kind === 'video') update.videoArtifactId = id;
+    else if (kind === 'thumbnail') update.thumbnailArtifactId = id;
+    else if (kind === 'code') update.codeArtifactId = id;
+    this.db
+      .update(schema.runs)
+      .set(update)
+      .where(eq(schema.runs.id, runId))
+      .run();
+  }
+}
+
+function mimeFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.mp4':
+      return 'video/mp4';
+    case '.webm':
+      return 'video/webm';
+    default:
+      return 'application/octet-stream';
   }
 }
 

@@ -1,6 +1,8 @@
 export { defineConfig, stubCoder, stubCritic, stubRenderer } from '@gaido/core';
 export { claudeCodeCoder } from '@gaido/adapter-claude-code';
 export type { ClaudeCodeCoderOpts, ClaudeCodePermissionMode } from '@gaido/adapter-claude-code';
+export { playwrightRenderer } from '@gaido/adapter-playwright-renderer';
+export type { PlaywrightRendererOpts } from '@gaido/adapter-playwright-renderer';
 export type {
   GaidoConfig,
   Coder,

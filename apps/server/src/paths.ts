@@ -5,6 +5,7 @@ export interface Paths {
   configFile: string;
   dbFile: string;
   runsDir: string;
+  artifactsDir: string;
   skeletonDir: string;
   migrationsDir: string;
 }
@@ -15,11 +16,16 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
   // it relative to this file so it works regardless of cwd.
   const here = path.dirname(new URL(import.meta.url).pathname);
   const migrationsDir = path.resolve(here, '..', 'migrations');
+  const runsDir = path.join(projectDir, 'runs');
   return {
     projectDir,
     configFile: path.join(projectDir, 'gaido.config.ts'),
     dbFile: path.join(projectDir, 'gaido.db'),
-    runsDir: path.join(projectDir, 'runs'),
+    runsDir,
+    // Render outputs land here, keyed by runId. Lives under runs/ so both
+    // worktrees (versioned source) and artifacts (binary outputs) share a
+    // single .gitignore'd top-level dir.
+    artifactsDir: path.join(runsDir, '.artifacts'),
     skeletonDir: path.join(projectDir, 'skeleton'),
     migrationsDir,
   };

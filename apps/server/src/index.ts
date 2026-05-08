@@ -41,7 +41,13 @@ export async function startServer(
     runsDir: paths.runsDir,
     skeletonDir: paths.skeletonDir,
   });
-  const orchestrator = new Orchestrator({ db, eventBus, config, workspace });
+  const orchestrator = new Orchestrator({
+    db,
+    eventBus,
+    config,
+    workspace,
+    paths,
+  });
 
   const context: Context = {
     db,

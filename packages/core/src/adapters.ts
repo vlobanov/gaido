@@ -46,22 +46,30 @@ export interface Coder {
 }
 
 export interface RenderInput {
-  codePath: string;
   duration: number;
   fps: number;
   width: number;
   height: number;
+  /** Reserved for future mid-render resume support; ignored in v0. */
   resumeHint?: unknown;
 }
 
 export interface RenderResult {
-  videoPath: string;
-  thumbnailPath: string;
+  /** Path to the encoded video file, or null if no video was produced. */
+  videoPath: string | null;
+  /** Path to a still-frame thumbnail image, or null if none. */
+  thumbnailPath: string | null;
+  /** Actual render wall-clock duration in milliseconds. */
   durationMs: number;
 }
 
 export interface Renderer {
   readonly kind: string;
+  /**
+   * Read the page source from `ctx.workdir` (typically `index.html`) and
+   * write video + thumbnail into `ctx.outputDir`. The orchestrator inserts
+   * artifact rows from the returned paths.
+   */
   render(input: RenderInput, ctx: RunContext): Promise<RenderResult>;
 }
 

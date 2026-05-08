@@ -6,7 +6,9 @@ import {
   fastifyTRPCPlugin,
   type FastifyTRPCPluginOptions,
 } from '@trpc/server/adapters/fastify';
-import { existsSync } from 'node:fs';
+import { schema } from '@gaido/core';
+import { eq } from 'drizzle-orm';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { appRouter, type AppRouter } from './routers/index.js';
@@ -52,6 +54,36 @@ export async function createServer(opts: ServerOptions) {
 
   fastify.get('/health', async () => ({ ok: true }));
 
+  // Serve artifact files by id. Looks up the artifact row, validates the
+  // file is still on disk, streams it back with the recorded mime.
+  fastify.get<{ Params: { id: string } }>(
+    '/artifacts/:id',
+    async (req, reply) => {
+      const { id } = req.params;
+      const artifact = opts.context.db
+        .select()
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, id))
+        .get();
+      if (!artifact) {
+        reply.code(404).send({ error: 'artifact not found' });
+        return;
+      }
+      if (!existsSync(artifact.path)) {
+        reply.code(410).send({ error: 'artifact file missing on disk' });
+        return;
+      }
+      const stat = statSync(artifact.path);
+      reply.header('content-type', artifact.mime);
+      reply.header('content-length', String(stat.size));
+      // Cache hard — artifact files are immutable per id (never rewritten).
+      reply.header('cache-control', 'public, max-age=31536000, immutable');
+      // Range support keeps <video> seekable; fastify-static does this for
+      // static dirs but our route is bespoke. For v0, full-stream is fine.
+      return reply.send(createReadStream(artifact.path));
+    }
+  );
+
   if (existsSync(WEB_DIST)) {
     await fastify.register(fastifyStatic, {
       root: WEB_DIST,
@@ -60,7 +92,11 @@ export async function createServer(opts: ServerOptions) {
     });
 
     fastify.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/trpc') || req.url.startsWith('/health')) {
+      if (
+        req.url.startsWith('/trpc') ||
+        req.url.startsWith('/health') ||
+        req.url.startsWith('/artifacts')
+      ) {
         reply.code(404).send({ error: 'Not found' });
         return;
       }

@@ -66,7 +66,7 @@ export const skeletonIndexHtmlTemplate = `<!doctype html>
     <script src="https://pixijs.download/v8.6.0/pixi.min.js"></script>
   </head>
   <body>
-    <script>
+    <script type="module">
       // The coder agent will replace or extend this script.
       // It should produce a Pixi/Canvas/WebGL animation that fills the viewport.
 
@@ -102,6 +102,9 @@ headless browser and capture video.
   also fine if you prefer.
 - The animation should loop or play out gracefully within the configured
   duration (default 5 seconds).
+- Keep the animation \`<script>\` tag as \`type="module"\` — Pixi's \`app.init()\`
+  is async and the skeleton uses top-level await. Removing \`type="module"\`
+  will produce a SyntaxError and a black render.
 
 ## Style
 

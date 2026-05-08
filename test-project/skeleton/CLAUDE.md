@@ -12,6 +12,9 @@ headless browser and capture video.
   also fine if you prefer.
 - The animation should loop or play out gracefully within the configured
   duration (default 5 seconds).
+- Keep the animation `<script>` tag as `type="module"` — Pixi's `app.init()`
+  is async and the skeleton uses top-level await. Removing `type="module"`
+  will produce a SyntaxError and a black render.
 
 ## Style
 

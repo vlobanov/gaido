@@ -33,6 +33,7 @@ export function Sidebar({ nodeId }: SidebarProps) {
 
   const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
   const node = nodeQuery.data?.node;
+  const currentRun = nodeQuery.data?.currentRun;
 
   const setFavorite = trpc.nodes.setFavorite.useMutation({
     onSuccess: () => {
@@ -124,9 +125,10 @@ export function Sidebar({ nodeId }: SidebarProps) {
         ) : null}
 
         <Section label="Output">
-          <div className="flex aspect-square items-center justify-center rounded border border-dashed border-zinc-800 bg-zinc-950 text-xs text-zinc-500">
-            Video will appear here when render completes
-          </div>
+          <OutputPanel
+            videoArtifactId={currentRun?.videoArtifactId ?? null}
+            thumbnailArtifactId={currentRun?.thumbnailArtifactId ?? null}
+          />
         </Section>
 
         <div className="flex flex-wrap gap-2 pt-1">
@@ -216,6 +218,46 @@ function SidebarShell({
       </div>
       <div className="flex-1 overflow-y-auto">{children}</div>
     </aside>
+  );
+}
+
+function OutputPanel({
+  videoArtifactId,
+  thumbnailArtifactId,
+}: {
+  videoArtifactId: string | null;
+  thumbnailArtifactId: string | null;
+}) {
+  if (videoArtifactId) {
+    return (
+      <video
+        data-testid="output-video"
+        className="aspect-square w-full rounded border border-zinc-800 bg-black"
+        src={`/artifacts/${videoArtifactId}`}
+        poster={
+          thumbnailArtifactId ? `/artifacts/${thumbnailArtifactId}` : undefined
+        }
+        controls
+        loop
+        muted
+        playsInline
+      />
+    );
+  }
+  if (thumbnailArtifactId) {
+    return (
+      <img
+        data-testid="output-thumbnail"
+        className="aspect-square w-full rounded border border-zinc-800 bg-black object-contain"
+        src={`/artifacts/${thumbnailArtifactId}`}
+        alt="Render thumbnail"
+      />
+    );
+  }
+  return (
+    <div className="flex aspect-square items-center justify-center rounded border border-dashed border-zinc-800 bg-zinc-950 text-xs text-zinc-500">
+      Video will appear here when render completes
+    </div>
   );
 }
 

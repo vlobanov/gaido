@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { schema, nodeId as newNodeId } from '@gaido/core';
@@ -209,6 +211,14 @@ export const nodesRouter = router({
       // Remove worktrees + branches. Children-first so parent branch can drop.
       for (const id of [...toDelete].reverse()) {
         await ctx.workspace.removeNodeWorkspace(id);
+      }
+
+      // Remove rendered artifact directories from disk for these runs.
+      for (const id of runIds) {
+        const dir = path.join(ctx.paths.artifactsDir, id);
+        if (fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
       }
 
       if (runIds.length > 0) {

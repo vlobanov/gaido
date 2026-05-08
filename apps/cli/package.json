@@ -20,6 +20,7 @@
     "@gaido/core": "workspace:*",
     "@gaido/server": "workspace:*",
     "@gaido/adapter-claude-code": "workspace:*",
+    "@gaido/adapter-playwright-renderer": "workspace:*",
     "open": "^10.1.0",
     "picocolors": "^1.1.1",
     "tsx": "^4.19.0"
