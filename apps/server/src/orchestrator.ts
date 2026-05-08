@@ -12,11 +12,13 @@ import { eq } from 'drizzle-orm';
 import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
 import type { ResolvedConfig } from './config-loader.js';
+import type { WorkspaceManager } from './workspace.js';
 
 interface OrchestratorDeps {
   db: Db;
   eventBus: EventBus;
   config: ResolvedConfig;
+  workspace: WorkspaceManager;
 }
 
 /**
@@ -30,12 +32,14 @@ export class Orchestrator {
   private readonly db: Db;
   private readonly eventBus: EventBus;
   private readonly config: ResolvedConfig;
+  private readonly workspace: WorkspaceManager;
   private readonly active = new Map<string, AbortController>();
 
   constructor(deps: OrchestratorDeps) {
     this.db = deps.db;
     this.eventBus = deps.eventBus;
     this.config = deps.config;
+    this.workspace = deps.workspace;
   }
 
   /** Insert a queued run for `nodeId`, kick off async execution. */
@@ -109,8 +113,21 @@ export class Orchestrator {
     signal: AbortSignal
   ): Promise<void> {
     try {
+      const node = this.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, nodeId))
+        .get();
+      if (!node) throw new Error(`node ${nodeId} not found`);
+
       // Coding phase.
       await this.runPhase(runId, nodeId, 'coding', signal, async () => {
+        // Materialize the worktree before the coder runs. Idempotent on retry.
+        await this.workspace.ensureNodeWorkspace({
+          nodeId,
+          parentId: node.parentId ?? undefined,
+        });
+
         // Five fake agent_token events spaced ~250ms apart, total ~1.25s; the
         // setStatus + spacing brings the phase to ~1.5s.
         const tokens = ['Sketching ', 'shapes', '...', ' wiring', ' loop'];
@@ -125,6 +142,20 @@ export class Orchestrator {
         }
         await sleep(250, signal);
       });
+
+      // Commit whatever the coder produced. Stub coder writes nothing → no-op.
+      const sha = await this.workspace.commitRun({
+        nodeId,
+        runId,
+        message: `run ${runId}`,
+      });
+      if (sha) {
+        this.db
+          .update(schema.runs)
+          .set({ commitSha: sha, updatedAt: Date.now() })
+          .where(eq(schema.runs.id, runId))
+          .run();
+      }
 
       // Rendering phase.
       await this.runPhase(runId, nodeId, 'rendering', signal, async () => {

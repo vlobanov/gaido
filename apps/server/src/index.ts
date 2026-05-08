@@ -5,6 +5,7 @@ import { EventBus } from './event-bus.js';
 import { Orchestrator } from './orchestrator.js';
 import { recoverInterrupted } from './recovery.js';
 import { createServer } from './server.js';
+import { createWorkspaceManager } from './workspace.js';
 import type { Context } from './context.js';
 
 export interface StartServerOptions {
@@ -36,9 +37,20 @@ export async function startServer(
   }
 
   const eventBus = new EventBus(db);
-  const orchestrator = new Orchestrator({ db, eventBus, config });
+  const workspace = createWorkspaceManager({
+    runsDir: paths.runsDir,
+    skeletonDir: paths.skeletonDir,
+  });
+  const orchestrator = new Orchestrator({ db, eventBus, config, workspace });
 
-  const context: Context = { db, eventBus, orchestrator, paths, config };
+  const context: Context = {
+    db,
+    eventBus,
+    orchestrator,
+    paths,
+    config,
+    workspace,
+  };
 
   const port = options.port ?? config.server.port;
   const host = options.host ?? '127.0.0.1';

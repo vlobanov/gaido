@@ -179,7 +179,7 @@ export const nodesRouter = router({
 
   delete: publicProcedure
     .input(z.object({ nodeId: z.string() }))
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       // Walk the subtree, collect node ids, then delete events/artifacts/runs/nodes.
       const toDelete: string[] = [];
       const queue = [input.nodeId];
@@ -205,6 +205,11 @@ export const nodesRouter = router({
 
       // Cancel any in-flight runs we're about to delete.
       for (const id of toDelete) ctx.orchestrator.cancel(id);
+
+      // Remove worktrees + branches. Children-first so parent branch can drop.
+      for (const id of [...toDelete].reverse()) {
+        await ctx.workspace.removeNodeWorkspace(id);
+      }
 
       if (runIds.length > 0) {
         ctx.db

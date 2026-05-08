@@ -3,6 +3,7 @@ import type { EventBus } from './event-bus.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { Paths } from './paths.js';
 import type { ResolvedConfig } from './config-loader.js';
+import type { WorkspaceManager } from './workspace.js';
 
 export interface Context {
   db: Db;
@@ -10,6 +11,7 @@ export interface Context {
   orchestrator: Orchestrator;
   paths: Paths;
   config: ResolvedConfig;
+  workspace: WorkspaceManager;
 }
 
 export interface ContextDeps extends Context {}
