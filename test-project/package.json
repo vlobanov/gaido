@@ -1,0 +1,8 @@
+{
+  "name": "gaido-test-project",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "gaido": "workspace:*"
+  }
+}

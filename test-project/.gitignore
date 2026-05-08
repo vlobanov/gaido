@@ -1,0 +1,16 @@
+# Gaido runtime state
+gaido.db
+gaido.db-journal
+gaido.db-wal
+gaido.db-shm
+runs/
+
+# Environment
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store

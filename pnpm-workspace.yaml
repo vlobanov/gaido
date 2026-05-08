@@ -1,0 +1,5 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  # Dev fixture for local testing of the CLI; not part of the framework.
+  - 'test-project'

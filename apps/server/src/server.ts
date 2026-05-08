@@ -1,0 +1,78 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import websocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
+import {
+  fastifyTRPCPlugin,
+  type FastifyTRPCPluginOptions,
+} from '@trpc/server/adapters/fastify';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { appRouter, type AppRouter } from './routers/index.js';
+import type { Context } from './context.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WEB_DIST = resolve(__dirname, '..', '..', 'web', 'dist');
+
+interface ServerOptions {
+  port: number;
+  host?: string;
+  context: Context;
+}
+
+export async function createServer(opts: ServerOptions) {
+  const fastify = Fastify({
+    logger: {
+      level: process.env['GAIDO_LOG_LEVEL'] ?? 'info',
+    },
+    maxParamLength: 5000,
+  });
+
+  await fastify.register(cors, {
+    origin: (origin, cb) => {
+      // Allow same-origin (no Origin header) and the Vite dev server.
+      if (!origin) return cb(null, true);
+      const allowed = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+      cb(null, allowed.includes(origin));
+    },
+    credentials: true,
+  });
+
+  await fastify.register(websocket);
+
+  await fastify.register(fastifyTRPCPlugin, {
+    prefix: '/trpc',
+    useWSS: true,
+    trpcOptions: {
+      router: appRouter,
+      createContext: () => opts.context,
+    },
+  } satisfies FastifyTRPCPluginOptions<AppRouter>);
+
+  fastify.get('/health', async () => ({ ok: true }));
+
+  if (existsSync(WEB_DIST)) {
+    await fastify.register(fastifyStatic, {
+      root: WEB_DIST,
+      prefix: '/',
+      wildcard: false,
+    });
+
+    fastify.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/trpc') || req.url.startsWith('/health')) {
+        reply.code(404).send({ error: 'Not found' });
+        return;
+      }
+      reply.type('text/html').sendFile('index.html');
+    });
+  } else {
+    fastify.log.warn(
+      `Web UI not found at ${WEB_DIST}. Run \`pnpm --filter @gaido/web build\` to enable the bundled UI, or use \`pnpm --filter @gaido/web dev\` for hot reload.`
+    );
+  }
+
+  return fastify;
+}
+
+export type Server = Awaited<ReturnType<typeof createServer>>;

@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.turbo/
+*.log
+.DS_Store
+
+# Build output
+**/dist/
+**/build/
+
+# IDE
+.vscode/
+.idea/
+
+# Local env
+.env
+.env.local
+
+# Claude Code session/skill state (user-level, not project-level)
+.claude/
+skills-lock.json
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+
+# Local test screenshots / one-off outputs at repo root
+/*.png
+/*.jpeg
+/*.jpg

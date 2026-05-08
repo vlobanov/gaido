@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1778250655286,
+      "tag": "0000_open_pandemic",
+      "breakpoints": true
+    }
+  ]
+}

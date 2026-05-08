@@ -1,0 +1,27 @@
+{
+  "name": "@gaido/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./types": "./src/types.ts",
+    "./events": "./src/events.ts",
+    "./adapters": "./src/adapters.ts",
+    "./config": "./src/config.ts",
+    "./ids": "./src/ids.ts",
+    "./stubs": "./src/stubs.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.4",
+    "nanoid": "^5.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.10.1"
+  }
+}

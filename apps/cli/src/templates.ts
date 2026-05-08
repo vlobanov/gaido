@@ -1,0 +1,117 @@
+export const gaidoConfigTemplate = `import { defineConfig, stubCoder, stubCritic, stubRenderer } from 'gaido';
+
+export default defineConfig({
+  name: 'My Gaido Project',
+
+  // Adapter implementations are not yet shipped.
+  // The stubs below let the framework run end-to-end with a fake orchestrator
+  // (status transitions, fake critique). Replace with real adapters when ready.
+  coder: stubCoder(),
+  critic: stubCritic(),
+  renderer: stubRenderer(),
+
+  render: {
+    width: 1024,
+    height: 1024,
+    fps: 30,
+    duration: 5,
+  },
+
+  concurrency: {
+    agents: 8,
+    renderers: 2,
+  },
+
+  server: {
+    port: 4288,
+    openBrowser: true,
+  },
+});
+`;
+
+export const envExampleTemplate = `# API keys for adapter implementations.
+# Copy this file to .env and fill in real values.
+
+# GEMINI_API_KEY=
+# ANTHROPIC_API_KEY=
+`;
+
+export const gitignoreTemplate = `# Gaido runtime state
+gaido.db
+gaido.db-journal
+gaido.db-wal
+gaido.db-shm
+runs/
+
+# Environment
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+`;
+
+export const skeletonIndexHtmlTemplate = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gaido scene</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+      canvas { display: block; }
+    </style>
+    <script src="https://pixijs.download/v8.6.0/pixi.min.js"></script>
+  </head>
+  <body>
+    <script>
+      // The coder agent will replace or extend this script.
+      // It should produce a Pixi/Canvas/WebGL animation that fills the viewport.
+
+      const app = new PIXI.Application();
+      await app.init({ resizeTo: window, background: '#000' });
+      document.body.appendChild(app.canvas);
+
+      // Placeholder content — agents replace.
+      const text = new PIXI.Text({
+        text: 'Replace me',
+        style: { fontFamily: 'system-ui', fontSize: 64, fill: '#888' },
+      });
+      text.anchor.set(0.5);
+      text.x = app.screen.width / 2;
+      text.y = app.screen.height / 2;
+      app.stage.addChild(text);
+    </script>
+  </body>
+</html>
+`;
+
+export const skeletonClaudeMdTemplate = `# Project conventions for the coder agent
+
+You are generating a self-contained visual animation that runs in a single
+\`index.html\` file in this directory. The renderer will load this file in a
+headless browser and capture video.
+
+## Output requirements
+
+- Animation must fill the viewport and run smoothly at the configured fps.
+- All assets are inline or loaded from a stable CDN. No local file deps.
+- Use Pixi.js (already imported via CDN in the skeleton). Plain canvas/WebGL
+  also fine if you prefer.
+- The animation should loop or play out gracefully within the configured
+  duration (default 5 seconds).
+
+## Style
+
+- Minimal, focused, well-composed.
+- Avoid relying on text labels — the visual should carry the idea.
+- Typography (when used): system-ui or Inter.
+
+## What to write
+
+When given an instruction, edit \`index.html\` to realize the concept. Keep
+the file self-contained. You may add additional \`.js\`/\`.css\` files in
+this directory if it helps modularity.
+`;
