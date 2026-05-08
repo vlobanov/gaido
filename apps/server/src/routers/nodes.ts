@@ -12,15 +12,15 @@ export const nodesRouter = router({
   }),
 
   get: publicProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ nodeId: z.string() }))
     .query(({ ctx, input }) => {
       const node = ctx.db
         .select()
         .from(schema.nodes)
-        .where(eq(schema.nodes.id, input.id))
+        .where(eq(schema.nodes.id, input.nodeId))
         .get();
       if (!node) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.id}` });
+        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.nodeId}` });
       }
       const currentRun = node.currentRunId
         ? ctx.db

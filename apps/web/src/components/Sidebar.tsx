@@ -31,19 +31,19 @@ export function Sidebar({ nodeId }: SidebarProps) {
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
-  const nodeQuery = trpc.nodes.get.useQuery({ id: nodeId });
+  const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
   const node = nodeQuery.data?.node;
 
   const setFavorite = trpc.nodes.setFavorite.useMutation({
     onSuccess: () => {
-      utils.nodes.get.invalidate({ id: nodeId });
+      utils.nodes.get.invalidate({ nodeId });
       utils.nodes.list.invalidate();
     },
   });
 
   const retryNode = trpc.nodes.retry.useMutation({
     onSuccess: () => {
-      utils.nodes.get.invalidate({ id: nodeId });
+      utils.nodes.get.invalidate({ nodeId });
       utils.nodes.list.invalidate();
     },
   });
@@ -56,7 +56,7 @@ export function Sidebar({ nodeId }: SidebarProps) {
   });
 
   const refreshNodeState = () => {
-    utils.nodes.get.invalidate({ id: nodeId });
+    utils.nodes.get.invalidate({ nodeId });
     utils.nodes.list.invalidate();
   };
 

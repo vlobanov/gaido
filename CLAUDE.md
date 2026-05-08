@@ -102,10 +102,13 @@ Console should stay clean — verify with `mcp__playwright__browser_console_mess
 
 ## Known leftover issues
 
-- **`nodes.get` input naming inconsistency.** Uses `{ id }` while every other nodes procedure uses `{ nodeId }`. One-line fix server-side + one site web-side.
 - **`tsconfig.json` overrides `declaration: false`** in `apps/cli` and `apps/web` to work around tRPC v11's non-portable inferred types. Fine for app packages; would matter only when publishing as libraries.
 - **`pnpm dev` parallel mode** requires `apps/web/.env.local` with `VITE_GAIDO_URL=http://localhost:4288` — not auto-created on first install.
 
 ## What's still ahead
 
 Real adapters (Claude Code coder via stdio, Gemini critic with Claude-frames fallback, Playwright + ffmpeg renderer); real orchestrator replacing the stub; per-run workspace materialization (deep copy or APFS reflink); artifact serving so the "Video will appear here" placeholder gets a real video; auto-spawn-N variations (v0.5).
+
+### Coder adapter — preferences set by user
+
+- **Default model: `claude-sonnet-4-6`.** Vadim values speed over capability for the coder loop ("I prefer speed in these iterations"). The Claude Code adapter should accept a `model` field on its constructor (overridable in `gaido.config.ts`) and default to Sonnet, not Opus.
