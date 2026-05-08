@@ -86,9 +86,10 @@ Console should stay clean — verify with `mcp__playwright__browser_console_mess
 
 - **CWD-as-project.** The directory where `gaido` is invoked IS the project. Project state lives in `gaido.config.ts`, `gaido.db`, `skeleton/`, `runs/` — all in cwd. The only thing in `~/.gaido/` is `.env` for shared API keys (project `.env` overrides). No project-list UI; multiple projects = multiple directories.
 - **`gaido.config.ts` is a real TS module.** Loaded via `jiti` at startup. Users `import { defineConfig, stubCoder, ... } from 'gaido'`. The init template uses stubs so a fresh project runs end-to-end immediately against the stub orchestrator.
-- **Skeleton mechanism.** Each project has a `skeleton/` directory. Root nodes' workspaces materialize from skeleton; child nodes' workspaces materialize from parent's workspace. The user authors `skeleton/CLAUDE.md` etc. to give the coder agent its starting context — same lever they'd use for a human collaborator.
+- **Skeleton mechanism.** Each project has a `skeleton/` directory. The bare git store at `runs/.git` is seeded from skeleton on first run. Root nodes' worktrees branch off `main`; child nodes' worktrees branch off `node/<parentId>`'s tip. The user authors `skeleton/CLAUDE.md` etc. to give the coder agent its starting context — same lever they'd use for a human collaborator.
 - **Pluggable surface = adapters only.** Coder + critic + renderer are pluggable (`packages/core/src/adapters.ts`). Storage and node schema are hardcoded — deliberately. Don't add pluggability without a real second consumer.
-- **Node ≠ Run.** A node is a slot in the graph; runs are attempts to fill it. `node.currentRunId` points at the latest. Retry replaces it; history stays in `runs` for debugging. Code inheritance is `parent → currentRun → codeArtifact → file` — never denormalize "inherited code" onto the child.
+- **Node ≠ Run.** A node is a slot in the graph; runs are attempts to fill it. `node.currentRunId` points at the latest. `node.sessionId` persists the coder's session across retries (Claude Code's `--resume`). Each successful run that produces a diff stacks a commit on `node/<nodeId>`; `runs.commitSha` points back. No-diff runs intentionally produce no commit.
+- **Versioning = git.** Per-node git worktrees at `runs/<nodeId>/`, branch `node/<nodeId>`, all backed by a bare repo at `runs/.git`. Fork = `git worktree add` off parent's tip. Retry = stack a commit (no amend). Free diffs / reverts / branching semantics; no homegrown snapshot store.
 - **Durability model: graph survives, runs restart from parent.** On startup, `recovery.ts` flips any non-terminal run to `interrupted`. No mid-run resume in v0; the `Renderer.render` interface accepts a `resumeHint` for adding it later without breaking the contract.
 - **No Temporal / Inngest.** Node graph IS the workflow. SQLite + state machine + events table is enough for local-first single-user. Adding a workflow runtime before the domain semantics settle would lock in wrong abstractions.
 
@@ -107,8 +108,6 @@ Console should stay clean — verify with `mcp__playwright__browser_console_mess
 
 ## What's still ahead
 
-Real adapters (Claude Code coder via stdio, Gemini critic with Claude-frames fallback, Playwright + ffmpeg renderer); real orchestrator replacing the stub; per-run workspace materialization (deep copy or APFS reflink); artifact serving so the "Video will appear here" placeholder gets a real video; auto-spawn-N variations (v0.5).
+Real critic adapter (Gemini with Claude-vision-on-frames fallback); real renderer adapter (Playwright + ffmpeg); replace stub render/critique phases in the orchestrator; artifact serving so the "Video will appear here" placeholder gets a real video; auto-spawn-N variations (v0.5).
 
-### Coder adapter — preferences set by user
-
-- **Default model: `claude-sonnet-4-6`.** Vadim values speed over capability for the coder loop ("I prefer speed in these iterations"). The Claude Code adapter should accept a `model` field on its constructor (overridable in `gaido.config.ts`) and default to Sonnet, not Opus.
+The Claude Code coder adapter is shipped (`@gaido/adapter-claude-code`, exported from `gaido` as `claudeCodeCoder`). Default model `claude-sonnet-4-6`, default `permissionMode: 'bypassPermissions'`. Sessions persist on `nodes.session_id` and resume via `--resume <sessionId>` on retry. Coder writes into the worktree; orchestrator stages + commits the diff and records `runs.commit_sha`.

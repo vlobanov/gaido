@@ -3,6 +3,7 @@ import type { Run } from '@gaido/core/schema';
 import type {
   AdapterConfigSnapshot,
   Critique,
+  Logger,
   RunPhase,
   RunStatus,
   RunError,
@@ -123,27 +124,38 @@ export class Orchestrator {
       // Coding phase.
       await this.runPhase(runId, nodeId, 'coding', signal, async () => {
         // Materialize the worktree before the coder runs. Idempotent on retry.
-        await this.workspace.ensureNodeWorkspace({
+        const workdir = await this.workspace.ensureNodeWorkspace({
           nodeId,
           parentId: node.parentId ?? undefined,
         });
 
-        // Five fake agent_token events spaced ~250ms apart, total ~1.25s; the
-        // setStatus + spacing brings the phase to ~1.5s.
-        const tokens = ['Sketching ', 'shapes', '...', ' wiring', ' loop'];
-        for (const text of tokens) {
-          await sleep(250, signal);
-          this.maybeFail('coding');
-          this.eventBus.publish(runId, {
-            kind: 'agent_token',
-            phase: 'coding',
-            text,
-          });
+        const result = await this.config.coder.run(
+          {
+            instruction: node.instruction,
+            priorSessionId: node.sessionId ?? null,
+          },
+          {
+            nodeId,
+            runId,
+            workdir,
+            outputDir: workdir,
+            abortSignal: signal,
+            logger: makeLogger('coder'),
+            emit: (event) => this.eventBus.publish(runId, event),
+          }
+        );
+
+        // Persist sessionId so the next run on this node can resume.
+        if (result.sessionId && result.sessionId !== node.sessionId) {
+          this.db
+            .update(schema.nodes)
+            .set({ sessionId: result.sessionId, updatedAt: Date.now() })
+            .where(eq(schema.nodes.id, nodeId))
+            .run();
         }
-        await sleep(250, signal);
       });
 
-      // Commit whatever the coder produced. Stub coder writes nothing → no-op.
+      // Commit whatever the coder produced. No-op if no diff.
       const sha = await this.workspace.commitRun({
         nodeId,
         runId,
@@ -373,6 +385,17 @@ function makeAbortFromSignal(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
   return err;
+}
+
+function makeLogger(prefix: string): Logger {
+  // eslint-disable-next-line no-console
+  const c = console;
+  return {
+    debug: (m, meta) => c.debug(`[${prefix}] ${m}`, meta ?? ''),
+    info: (m, meta) => c.log(`[${prefix}] ${m}`, meta ?? ''),
+    warn: (m, meta) => c.warn(`[${prefix}] ${m}`, meta ?? ''),
+    error: (m, meta) => c.error(`[${prefix}] ${m}`, meta ?? ''),
+  };
 }
 
 // Suppress unused-warning for events type that participates only via inference.

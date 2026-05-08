@@ -1,12 +1,10 @@
-import { defineConfig, stubCoder, stubCritic, stubRenderer } from 'gaido';
+import { defineConfig, claudeCodeCoder, stubCritic, stubRenderer } from 'gaido';
 
 export default defineConfig({
   name: 'My Gaido Project',
 
-  // Adapter implementations are not yet shipped.
-  // The stubs below let the framework run end-to-end with a fake orchestrator
-  // (status transitions, fake critique). Replace with real adapters when ready.
-  coder: stubCoder(),
+  coder: claudeCodeCoder(),
+  // Critic and renderer are still stubs.
   critic: stubCritic(),
   renderer: stubRenderer(),
 

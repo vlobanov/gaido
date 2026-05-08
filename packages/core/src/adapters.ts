@@ -20,15 +20,28 @@ export interface RunContext {
 
 export interface CoderInput {
   instruction: string;
-  parentCodePath?: string;
+  /**
+   * Session id from a prior run on the same node. Adapters that support
+   * resume (e.g., Claude Code) should continue the session; others ignore.
+   */
+  priorSessionId?: string | null;
 }
 
 export interface CoderResult {
-  codeArtifactPath: string;
+  /**
+   * Session id this run executed under. The orchestrator persists it on
+   * the node so the next run can resume. Null/undefined if the adapter
+   * has no session concept.
+   */
+  sessionId?: string | null;
 }
 
 export interface Coder {
   readonly kind: string;
+  /**
+   * Mutate `ctx.workdir` to satisfy `instruction`. The orchestrator commits
+   * whatever changes are present afterwards.
+   */
   run(input: CoderInput, ctx: RunContext): Promise<CoderResult>;
 }
 
