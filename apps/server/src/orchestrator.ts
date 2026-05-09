@@ -179,7 +179,8 @@ export class Orchestrator {
           .run();
       }
 
-      // Rendering phase.
+      // Rendering phase. Capture the video path so the critic can read it.
+      let renderedVideoPath: string | null = null;
       await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
         const workdir = this.workspace.workspacePath(nodeId);
         const outputDir = path.join(this.paths.artifactsDir, runId);
@@ -204,6 +205,7 @@ export class Orchestrator {
         );
 
         if (result.videoPath) {
+          renderedVideoPath = result.videoPath;
           this.recordArtifact(runId, 'video', result.videoPath, 'video/mp4');
         }
         if (result.thumbnailPath) {
@@ -217,19 +219,34 @@ export class Orchestrator {
       });
 
       // Critiquing phase.
+      let critique: Critique | null = null;
       await this.runPhase(runId, nodeId, 'critiquing', signal, async () => {
-        await sleep(1000, signal);
+        if (!renderedVideoPath) {
+          throw new Error(
+            'critic skipped: renderer produced no video — cannot evaluate'
+          );
+        }
+        const workdir = this.workspace.workspacePath(nodeId);
+        const result = await this.config.critic.critique(
+          {
+            videoPath: renderedVideoPath,
+            codePath: workdir,
+            prompt: node.instruction,
+          },
+          {
+            nodeId,
+            runId,
+            workdir,
+            outputDir: path.join(this.paths.artifactsDir, runId),
+            abortSignal: signal,
+            logger: makeLogger('critic'),
+            emit: (event) => this.eventBus.publish(runId, event),
+          }
+        );
+        critique = result.critique;
       });
 
-      // Done. Persist a fake critique and finish.
-      const critique: Critique = {
-        overall: 'Looks balanced and lively.',
-        rating: 4,
-        strengths: ['Composition is clear', 'Smooth motion'],
-        weaknesses: ['Color palette is a bit muted'],
-        suggestions: ['Try a brighter accent color', 'Vary the timing'],
-      };
-      this.setRunStatus(runId, nodeId, 'done', { critique });
+      this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
     } catch (err) {
       if (signal.aborted) {
         this.setRunStatus(runId, nodeId, 'cancelled', {});
@@ -432,30 +449,6 @@ function toRunError(err: unknown): RunError {
     };
   }
   return { phase: 'startup', message: String(err) };
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(makeAbortFromSignal());
-      return;
-    }
-    const t = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(t);
-      reject(makeAbortFromSignal());
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-function makeAbortFromSignal(): Error {
-  const err = new Error('aborted');
-  err.name = 'AbortError';
-  return err;
 }
 
 function makeLogger(prefix: string): Logger {

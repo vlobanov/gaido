@@ -1,4 +1,5 @@
 import { resolvePaths } from './paths.js';
+import { loadEnv } from './env-loader.js';
 import { loadConfig } from './config-loader.js';
 import { openDb } from './db.js';
 import { EventBus } from './event-bus.js';
@@ -24,6 +25,13 @@ export async function startServer(
   options: StartServerOptions = {}
 ): Promise<StartServerResult> {
   const paths = resolvePaths(options.cwd);
+  const env = loadEnv(paths.projectDir);
+  if (env.loaded.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[gaido] loaded env from ${env.loaded.join(', ')} (${env.applied} var${env.applied === 1 ? '' : 's'})`
+    );
+  }
   const config = await loadConfig(paths.configFile);
 
   const { db, sqlite } = openDb(paths.dbFile, paths.migrationsDir);

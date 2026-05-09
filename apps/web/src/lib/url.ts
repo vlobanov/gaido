@@ -1,11 +1,14 @@
 /**
  * Resolve the base URL of the Gaido server, plus a derived WebSocket URL for
- * tRPC subscriptions. Reads VITE_GAIDO_URL when set (useful for dev mode where
- * Vite runs at :5173 and the server is at :4288); otherwise uses the same
- * origin as the page (production: the server serves the bundled UI).
+ * tRPC subscriptions. Precedence:
+ *   1. VITE_GAIDO_URL env var (override, e.g. for non-default ports).
+ *   2. Dev mode (`vite dev` at :5173): default to http://127.0.0.1:4288.
+ *   3. Production: same origin as the page (server serves the bundled UI).
  */
+const DEFAULT_DEV_URL = 'http://127.0.0.1:4288';
 const RAW = (
-  import.meta.env.VITE_GAIDO_URL ?? window.location.origin
+  import.meta.env.VITE_GAIDO_URL ??
+  (import.meta.env.DEV ? DEFAULT_DEV_URL : window.location.origin)
 ).replace(/\/+$/, '');
 
 export const httpUrl = RAW;

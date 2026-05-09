@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import type { Coder, CoderInput, CoderResult, RunContext } from '@gaido/core';
 
+export { claudeCodeCritic, type ClaudeCodeCriticOpts } from './critic.js';
+
 export type ClaudeCodePermissionMode =
   | 'default'
   | 'acceptEdits'

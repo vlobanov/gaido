@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { NodeStatus } from '@gaido/core';
 import { trpc } from '../lib/trpc';
+import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
 import { StatusBadge, isActiveStatus } from './StatusBadge';
 import { EventStream } from './EventStream';
@@ -233,9 +234,11 @@ function OutputPanel({
       <video
         data-testid="output-video"
         className="aspect-square w-full rounded border border-zinc-800 bg-black"
-        src={`/artifacts/${videoArtifactId}`}
+        src={`${httpUrl}/artifacts/${videoArtifactId}`}
         poster={
-          thumbnailArtifactId ? `/artifacts/${thumbnailArtifactId}` : undefined
+          thumbnailArtifactId
+            ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
+            : undefined
         }
         controls
         loop
@@ -249,7 +252,7 @@ function OutputPanel({
       <img
         data-testid="output-thumbnail"
         className="aspect-square w-full rounded border border-zinc-800 bg-black object-contain"
-        src={`/artifacts/${thumbnailArtifactId}`}
+        src={`${httpUrl}/artifacts/${thumbnailArtifactId}`}
         alt="Render thumbnail"
       />
     );
@@ -326,7 +329,7 @@ function RunDetails({
             </span>
             {typeof run.critique.rating === 'number' ? (
               <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
-                {run.critique.rating}/10
+                {run.critique.rating}/5
               </span>
             ) : null}
           </div>

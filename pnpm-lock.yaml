@@ -17,6 +17,9 @@ importers:
       '@gaido/adapter-claude-code':
         specifier: workspace:*
         version: link:../../packages/adapter-claude-code
+      '@gaido/adapter-openrouter':
+        specifier: workspace:*
+        version: link:../../packages/adapter-openrouter
       '@gaido/adapter-playwright-renderer':
         specifier: workspace:*
         version: link:../../packages/adapter-playwright-renderer
@@ -154,6 +157,19 @@ importers:
         version: 5.4.21(@types/node@22.19.18)
 
   packages/adapter-claude-code:
+    dependencies:
+      '@gaido/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.18
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/adapter-openrouter:
     dependencies:
       '@gaido/core':
         specifier: workspace:*
