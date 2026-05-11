@@ -22,6 +22,7 @@ import type { EventBus } from './event-bus.js';
 import type { ResolvedConfig } from './config-loader.js';
 import type { WorkspaceManager } from './workspace.js';
 import type { Paths } from './paths.js';
+import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
 
 interface OrchestratorDeps {
   db: Db;
@@ -344,7 +345,7 @@ export class Orchestrator {
         parentId: coder.id,
         kind: 'critique',
         positionX: coder.positionX,
-        positionY: coder.positionY + 220,
+        positionY: nextChildY(coder.positionY, CODER_CARD_HEIGHT),
         instruction: coder.instruction,
         status: 'idle',
         isFavorite: false,

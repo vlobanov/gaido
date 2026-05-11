@@ -88,7 +88,7 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
               className="font-serif text-sm leading-snug text-ink"
               style={{
                 display: '-webkit-box',
-                WebkitLineClamp: 3,
+                WebkitLineClamp: 10,
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
               }}

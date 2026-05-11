@@ -5,6 +5,7 @@ import { TRPCError } from '@trpc/server';
 import { schema, nodeId as newNodeId } from '@gaido/core';
 import { eq, inArray } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
+import { critiqueCardHeight, nextChildY } from '../layout.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
 
@@ -127,9 +128,19 @@ export const nodesRouter = router({
       }
       const id = newNodeId();
       const now = Date.now();
-      // Default child position offsets below the parent if none supplied.
+      // Default child position offsets below the parent's actual rendered
+      // height (estimated from critique content) if none supplied.
+      const parentRun = parent.currentRunId
+        ? ctx.db
+            .select()
+            .from(schema.runs)
+            .where(eq(schema.runs.id, parent.currentRunId))
+            .get() ?? null
+        : null;
       const x = input.position?.x ?? parent.positionX;
-      const y = input.position?.y ?? parent.positionY + 220;
+      const y =
+        input.position?.y ??
+        nextChildY(parent.positionY, critiqueCardHeight(parentRun?.critique));
 
       ctx.db
         .insert(schema.nodes)
