@@ -1,29 +1,29 @@
 import { useState } from 'react';
-import { Sparkles, X } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 
 export function EmptyState() {
   const [modalOpen, setModalOpen] = useState(false);
   return (
-    <div className="flex h-full w-full items-center justify-center">
-      <div className="flex flex-col items-center gap-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 border border-zinc-800">
-          <Sparkles className="h-6 w-6 text-zinc-400" />
+    <div className="flex h-full w-full items-center justify-center bg-paper">
+      <div className="flex max-w-md flex-col items-start gap-6 px-8">
+        <div className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+          Workspace · empty
         </div>
-        <div className="space-y-2">
-          <h2 className="text-lg font-medium text-zinc-100">No explorations yet</h2>
-          <p className="max-w-sm text-sm text-zinc-400">
-            Create a root node to seed your first idea. Branches grow from there as the
-            coder, renderer, and critic loop on it.
-          </p>
-        </div>
+        <h2 className="font-serif text-3xl leading-tight text-ink">
+          A blank page is the start of every notebook.
+        </h2>
+        <p className="font-serif text-base leading-relaxed text-ink-soft">
+          Seed a root node with an instruction. The coder writes the
+          visual, the renderer captures it, the critic notes what to fork
+          next. Branch from there as long as the work is interesting.
+        </p>
         <button
           type="button"
           onClick={() => setModalOpen(true)}
           data-testid="empty-create-root"
-          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+          className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint"
         >
-          Create root node
+          Seed root node
         </button>
       </div>
 
@@ -55,47 +55,48 @@ function CreateRootModal({ onClose }: CreateRootModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
       onClick={onClose}
     >
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
         data-testid="create-root-form"
-        className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-zinc-100">Create root node</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-xl text-ink">Seed root node</h3>
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+            New entry
+          </span>
         </div>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <label
+          htmlFor="create-root-input"
+          className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+        >
           Instruction
         </label>
         <textarea
+          id="create-root-input"
           autoFocus
           rows={4}
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
-          placeholder="A neon torus rotating slowly with a chromatic aberration glitch..."
+          placeholder="A neon torus rotating slowly with a chromatic aberration glitch"
           data-testid="create-root-input"
-          className="w-full resize-none rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-600"
+          className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
         />
         {createRoot.error ? (
-          <p className="mt-2 text-xs text-red-400">{createRoot.error.message}</p>
+          <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
+            {createRoot.error.message}
+          </p>
         ) : null}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-5 flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
             data-testid="create-root-cancel"
-            className="rounded-md border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
           >
             Cancel
           </button>
@@ -103,9 +104,9 @@ function CreateRootModal({ onClose }: CreateRootModalProps) {
             type="submit"
             disabled={createRoot.isPending || !instruction.trim()}
             data-testid="create-root-submit"
-            className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40"
           >
-            {createRoot.isPending ? 'Creating...' : 'Create'}
+            {createRoot.isPending ? 'Seeding...' : 'Seed'}
           </button>
         </div>
       </form>

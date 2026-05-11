@@ -1,13 +1,4 @@
 import { useState } from 'react';
-import {
-  GitBranch,
-  RefreshCw,
-  Trash2,
-  Star,
-  X,
-  Clock,
-  AlertTriangle,
-} from 'lucide-react';
 import type { NodeStatus } from '@gaido/core';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
@@ -65,7 +56,9 @@ export function Sidebar({ nodeId }: SidebarProps) {
   if (nodeQuery.isLoading) {
     return (
       <SidebarShell onClose={() => setSelectedNodeId(null)}>
-        <div className="p-4 text-sm text-zinc-500">Loading...</div>
+        <div className="p-5 font-mono text-xs uppercase tracking-caps text-ink-faint">
+          Loading
+        </div>
       </SidebarShell>
     );
   }
@@ -73,7 +66,9 @@ export function Sidebar({ nodeId }: SidebarProps) {
   if (!node) {
     return (
       <SidebarShell onClose={() => setSelectedNodeId(null)}>
-        <div className="p-4 text-sm text-zinc-500">Node not found.</div>
+        <div className="p-5 font-mono text-xs uppercase tracking-caps text-ink-faint">
+          Node not found
+        </div>
       </SidebarShell>
     );
   }
@@ -84,34 +79,27 @@ export function Sidebar({ nodeId }: SidebarProps) {
 
   return (
     <SidebarShell onClose={() => setSelectedNodeId(null)}>
-      <div className="flex flex-col gap-5 p-4">
+      <div className="flex flex-col gap-6 p-5">
         <div className="flex items-center justify-between">
           <StatusBadge status={status} size="md" />
-          <button
-            type="button"
-            onClick={() =>
+          <FavoriteToggle
+            isFavorite={node.isFavorite}
+            onToggle={() =>
               setFavorite.mutate({ nodeId, isFavorite: !node.isFavorite })
             }
-            className={`rounded p-1 transition-colors ${
-              node.isFavorite
-                ? 'text-amber-400 hover:text-amber-300'
-                : 'text-zinc-600 hover:text-zinc-400'
-            }`}
-            aria-label={node.isFavorite ? 'Unfavorite' : 'Favorite'}
-          >
-            <Star
-              className="h-4 w-4"
-              fill={node.isFavorite ? 'currentColor' : 'none'}
-            />
-          </button>
+          />
         </div>
 
         <Section label="Instruction">
-          <p className="whitespace-pre-wrap text-sm text-zinc-200">
-            {node.instruction || (
-              <span className="italic text-zinc-500">No instruction</span>
-            )}
-          </p>
+          {node.instruction ? (
+            <p className="whitespace-pre-wrap font-serif text-base leading-snug text-ink">
+              {node.instruction}
+            </p>
+          ) : (
+            <p className="font-serif text-base italic text-ink-faint">
+              no instruction
+            </p>
+          )}
         </Section>
 
         <RunDetails nodeId={nodeId} runId={node.currentRunId ?? null} />
@@ -132,36 +120,36 @@ export function Sidebar({ nodeId }: SidebarProps) {
           />
         </Section>
 
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
           <button
             type="button"
             onClick={() => setForkOpen(true)}
             data-testid="sidebar-fork"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:bg-zinc-700"
+            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
           >
-            <GitBranch className="h-3.5 w-3.5" /> Fork
+            Fork
           </button>
           <button
             type="button"
             disabled={!canRetry || retryNode.isPending}
             onClick={() => retryNode.mutate({ nodeId })}
             data-testid="sidebar-retry"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-zinc-900"
+            className="border border-hairline bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Retry
+            Retry
           </button>
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
             data-testid="sidebar-delete"
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950 hover:border-red-900"
+            className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
+            Delete
           </button>
         </div>
 
         {retryNode.error ? (
-          <p className="text-xs text-red-400">{retryNode.error.message}</p>
+          <p className="font-mono text-xs text-sanguine">{retryNode.error.message}</p>
         ) : null}
       </div>
 
@@ -180,7 +168,7 @@ export function Sidebar({ nodeId }: SidebarProps) {
       {confirmDelete ? (
         <ConfirmDialog
           title="Delete node?"
-          description="This permanently removes the node and its descendants. This cannot be undone."
+          description="This permanently removes the node and its descendants. The action cannot be undone."
           confirmLabel="Delete"
           danger
           loading={deleteNode.isPending}
@@ -202,23 +190,51 @@ function SidebarShell({
   return (
     <aside
       data-testid="sidebar"
-      className="flex h-full w-[380px] shrink-0 flex-col border-l border-zinc-800 bg-zinc-950"
+      className="flex h-full w-[400px] shrink-0 flex-col border-l border-hairline bg-paper"
     >
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Node
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-hairline px-5">
+        <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+          Entry
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+          className="font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
           aria-label="Close panel"
         >
-          <X className="h-4 w-4" />
+          close
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">{children}</div>
     </aside>
+  );
+}
+
+function FavoriteToggle({
+  isFavorite,
+  onToggle,
+}: {
+  isFavorite: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={isFavorite ? 'Unfavorite' : 'Favorite'}
+      aria-pressed={isFavorite}
+      className="flex items-center gap-2 p-1"
+    >
+      <span
+        aria-hidden
+        className={`block h-4 w-[3px] ${
+          isFavorite ? 'bg-sanguine' : 'bg-transparent border-l border-hairline-deep'
+        }`}
+      />
+      <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+        {isFavorite ? 'Favorited' : 'Mark'}
+      </span>
+    </button>
   );
 }
 
@@ -233,7 +249,7 @@ function OutputPanel({
     return (
       <video
         data-testid="output-video"
-        className="aspect-square w-full rounded border border-zinc-800 bg-black"
+        className="aspect-square w-full border border-hairline bg-paper-deep"
         src={`${httpUrl}/artifacts/${videoArtifactId}`}
         poster={
           thumbnailArtifactId
@@ -251,15 +267,15 @@ function OutputPanel({
     return (
       <img
         data-testid="output-thumbnail"
-        className="aspect-square w-full rounded border border-zinc-800 bg-black object-contain"
+        className="aspect-square w-full border border-hairline bg-paper-deep object-contain"
         src={`${httpUrl}/artifacts/${thumbnailArtifactId}`}
         alt="Render thumbnail"
       />
     );
   }
   return (
-    <div className="flex aspect-square items-center justify-center rounded border border-dashed border-zinc-800 bg-zinc-950 text-xs text-zinc-500">
-      Video will appear here when render completes
+    <div className="flex aspect-square w-full items-center justify-center bg-hatch font-mono text-xs uppercase tracking-caps text-ink-faint">
+      No render yet
     </div>
   );
 }
@@ -272,8 +288,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section>
-      <h4 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+    <section className="flex flex-col gap-2">
+      <h4 className="font-mono text-xs uppercase tracking-caps text-ink-muted">
         {label}
       </h4>
       {children}
@@ -298,22 +314,24 @@ function RunDetails({
   if (!run) return null;
 
   return (
-    <Section label="Current run">
-      <div className="space-y-1 text-xs text-zinc-400">
+    <Section label="Run">
+      <div className="space-y-1 font-mono text-xs text-ink-soft">
         <Timestamp label="Coding" started={run.codingStartedAt} finished={run.codingFinishedAt} />
         <Timestamp label="Rendering" started={run.renderingStartedAt} finished={run.renderingFinishedAt} />
         <Timestamp label="Critiquing" started={run.critiquingStartedAt} finished={run.critiquingFinishedAt} />
+        <div className="pt-1 text-ink-faint">id · {runId}</div>
       </div>
 
       {run.error ? (
         <div
           data-testid="error-panel"
-          className="mt-2 flex items-start gap-2 rounded border border-red-900/40 bg-red-950/30 p-2 text-xs text-red-300"
+          className="mt-3 border border-sanguine bg-sanguine-tint p-3 font-mono text-xs leading-relaxed text-sanguine-deep"
         >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <div>
-            <div className="font-medium">{run.error.phase} failed</div>
-            <div className="text-red-400/80">{run.error.message}</div>
+          <div className="uppercase tracking-caps text-sanguine">
+            {run.error.phase} failed
+          </div>
+          <div className="mt-1 normal-case tracking-normal text-ink-soft">
+            {run.error.message}
           </div>
         </div>
       ) : null}
@@ -321,23 +339,26 @@ function RunDetails({
       {run.critique ? (
         <div
           data-testid="critique-panel"
-          className="mt-2 rounded border border-zinc-800 bg-zinc-900/50 p-2.5 text-xs text-zinc-300 space-y-1.5"
+          className="mt-3 border border-hairline bg-paper-deep p-3 text-sm leading-relaxed text-ink"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
               Critique
             </span>
             {typeof run.critique.rating === 'number' ? (
-              <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
-                {run.critique.rating}/5
+              <span className="font-mono text-xs uppercase tracking-caps text-ink-soft">
+                {run.critique.rating} of 5
               </span>
             ) : null}
           </div>
-          <p className="text-zinc-200">{run.critique.overall}</p>
+          <p className="font-serif text-base text-ink">{run.critique.overall}</p>
           {run.critique.suggestions.length > 0 ? (
-            <ul className="list-disc space-y-0.5 pl-4 text-zinc-400">
+            <ul className="mt-3 list-none space-y-1.5 font-serif text-sm text-ink-soft">
               {run.critique.suggestions.slice(0, 3).map((s, i) => (
-                <li key={i}>{s}</li>
+                <li key={i} className="flex gap-2">
+                  <span className="text-ink-faint">·</span>
+                  <span>{s}</span>
+                </li>
               ))}
             </ul>
           ) : null}
@@ -358,12 +379,11 @@ function Timestamp({
 }) {
   if (!started) return null;
   return (
-    <div className="flex items-center gap-2 font-mono text-[11px]">
-      <Clock className="h-3 w-3 text-zinc-600" />
-      <span className="w-16 text-zinc-500">{label}</span>
-      <span className="text-zinc-300">
+    <div className="flex items-baseline gap-3">
+      <span className="w-20 text-ink-muted">{label.toLowerCase()}</span>
+      <span className="text-ink">
         {fmt(started)}
-        {finished ? <span className="text-zinc-500"> → {fmt(finished)}</span> : null}
+        {finished ? <span className="text-ink-faint"> · {fmt(finished)}</span> : null}
       </span>
     </div>
   );
@@ -400,46 +420,47 @@ function ForkModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
       onClick={onClose}
     >
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
         data-testid="fork-form"
-        className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-zinc-100">Fork node</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-xl text-ink">Fork node</h3>
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+            Child branch
+          </span>
         </div>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-          What should we tweak?
+        <label
+          htmlFor="fork-input"
+          className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+        >
+          What should the next variation explore?
         </label>
         <textarea
+          id="fork-input"
           autoFocus
           rows={3}
           value={tweak}
           onChange={(e) => setTweak(e.target.value)}
-          placeholder="Make it slower and add a noise overlay..."
+          placeholder="Slow it down and add a noise overlay"
           data-testid="fork-input"
-          className="w-full resize-none rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-600"
+          className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
         />
         {createChild.error ? (
-          <p className="mt-2 text-xs text-red-400">{createChild.error.message}</p>
+          <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
+            {createChild.error.message}
+          </p>
         ) : null}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-5 flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
           >
             Cancel
           </button>
@@ -447,7 +468,7 @@ function ForkModal({
             type="submit"
             disabled={createChild.isPending || !tweak.trim()}
             data-testid="fork-submit"
-            className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40"
           >
             {createChild.isPending ? 'Forking...' : 'Fork'}
           </button>
@@ -476,20 +497,20 @@ function ConfirmDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
       onClick={onCancel}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className="w-full max-w-md border border-hairline-deep bg-paper p-6"
       >
-        <h3 className="mb-1 text-sm font-medium text-zinc-100">{title}</h3>
-        <p className="mb-4 text-sm text-zinc-400">{description}</p>
-        <div className="flex justify-end gap-2">
+        <h3 className="font-serif text-xl text-ink">{title}</h3>
+        <p className="mt-3 font-serif text-base text-ink-soft">{description}</p>
+        <div className="mt-5 flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
           >
             Cancel
           </button>
@@ -497,10 +518,10 @@ function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+            className={`border px-5 py-2 font-mono text-xs uppercase tracking-caps transition-colors disabled:opacity-40 ${
               danger
-                ? 'bg-red-600 text-white hover:bg-red-500'
-                : 'bg-zinc-100 text-zinc-900 hover:bg-white'
+                ? 'border-sanguine bg-paper text-sanguine hover:bg-sanguine-tint'
+                : 'border-hairline-deep bg-paper text-ink hover:bg-paper-deep'
             }`}
           >
             {loading ? 'Working...' : confirmLabel}

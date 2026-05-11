@@ -5,6 +5,24 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --paper: oklch(97% 0.008 60);
+    --paper-deep: oklch(95.5% 0.011 60);
+    --paper-edge: oklch(93% 0.012 60);
+
+    --ink: oklch(22% 0.014 60);
+    --ink-soft: oklch(35% 0.012 60);
+    --ink-muted: oklch(56% 0.011 60);
+    --ink-faint: oklch(72% 0.009 60);
+
+    --hairline: oklch(84% 0.009 60);
+    --hairline-deep: oklch(64% 0.014 60);
+
+    --sanguine: oklch(52% 0.16 28);
+    --sanguine-deep: oklch(44% 0.17 28);
+    --sanguine-tint: oklch(94% 0.025 28);
+  }
+
   html,
   body,
   #root {
@@ -12,21 +30,46 @@
   }
   body {
     font-family:
-      Inter,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      'Segoe UI',
-      Roboto,
-      'Helvetica Neue',
-      Arial,
-      sans-serif;
+      'JetBrains Mono',
+      'Berkeley Mono',
+      'IBM Plex Mono',
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+    font-feature-settings: 'tnum', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
 
-/* xyflow theming for our dark canvas */
+@layer utilities {
+  .bg-hatch {
+    background-color: var(--paper-deep);
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 5px,
+      var(--hairline) 5px,
+      var(--hairline) 6px
+    );
+  }
+  .bg-hatch-faint {
+    background-color: var(--paper);
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 7px,
+      var(--paper-edge) 7px,
+      var(--paper-edge) 8px
+    );
+  }
+}
+
+/* xyflow re-skinned to paper-and-ink. No shadows, no zinc, no fills on chrome. */
 .react-flow {
-  background-color: rgb(9 9 11); /* zinc-950 */
+  background-color: var(--paper);
 }
 
 .react-flow__attribution {
@@ -34,37 +77,52 @@
 }
 
 .react-flow__edge-path {
-  stroke: rgb(63 63 70); /* zinc-700 */
-  stroke-width: 1.5;
+  stroke: var(--hairline-deep);
+  stroke-width: 1;
 }
 
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:focus .react-flow__edge-path,
 .react-flow__edge:focus-visible .react-flow__edge-path {
-  stroke: rgb(161 161 170); /* zinc-400 */
+  stroke: var(--sanguine);
+  stroke-width: 1;
 }
 
 .react-flow__handle {
-  background: rgb(82 82 91); /* zinc-600 */
-  border: 1px solid rgb(24 24 27); /* zinc-900 */
-  width: 8px;
-  height: 8px;
+  background: var(--paper);
+  border: 1px solid var(--hairline-deep);
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
 }
 
 .react-flow__controls {
-  background: rgb(24 24 27); /* zinc-900 */
-  border: 1px solid rgb(39 39 42); /* zinc-800 */
-  border-radius: 6px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background: rgb(24 24 27);
-  color: rgb(228 228 231);
-  border-bottom: 1px solid rgb(39 39 42);
-  fill: rgb(228 228 231);
+  background: var(--paper);
+  color: var(--ink);
+  border-bottom: 1px solid var(--hairline);
+  fill: var(--ink);
 }
 
 .react-flow__controls-button:hover {
-  background: rgb(39 39 42);
+  background: var(--paper-deep);
+}
+
+.react-flow__node {
+  font-family: inherit;
+}
+
+/* Honor reduced-motion: drop the active-tick breathe. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-breathe-edge,
+  .animate-breathe-tick {
+    animation: none;
+  }
 }

@@ -117,3 +117,20 @@ Shipped:
 - **Skeleton convention.** The skeleton's animation `<script>` MUST be `type="module"` — pixi `app.init()` is async and we use top-level await. Default `init` template enforces this; `skeleton/CLAUDE.md` should remind the agent not to drop the attribute.
 
 System deps (only if using these adapters): `claude` CLI on PATH (coder), `ffmpeg` on PATH (renderer), Chromium auto-downloaded by `playwright` postinstall.
+
+## Design Context
+
+Strategic + visual direction lives in two root files:
+
+- **PRODUCT.md** — register, users, brand personality, anti-references, design principles.
+- **DESIGN.md** — visual system (seed-stage; re-run `/impeccable document` once a real surface is crafted).
+
+Five principles to defend choices against:
+
+1. **Lab notebook, not dashboard.**
+2. **Generative-art lineage over SaaS conventions.**
+3. **Generosity over density.**
+4. **Honesty over polish.**
+5. **The artist stays in the loop, not behind it.**
+
+The current `apps/web` styling (zinc-950 + Inter + lucide-react) is the "yet-another-zinc dashboard" lane PRODUCT.md rejects by name. Replace, don't extend. By-name bans: Inter, `box-shadow`, gradient text, glassmorphism, colored side-stripe borders, bounce/elastic easings.

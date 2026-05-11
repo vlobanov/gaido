@@ -25,6 +25,9 @@ interface GaidoNode {
   instruction: string;
   status: NodeStatus;
   isFavorite: boolean;
+  currentRunId: string | null;
+  thumbnailArtifactId: string | null;
+  videoArtifactId: string | null;
 }
 
 interface GraphProps {
@@ -53,6 +56,9 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           instruction: n.instruction,
           status: n.status,
           isFavorite: n.isFavorite,
+          currentRunId: n.currentRunId,
+          thumbnailArtifactId: n.thumbnailArtifactId,
+          videoArtifactId: n.videoArtifactId,
           selected: n.id === selectedNodeId,
         },
         selected: n.id === selectedNodeId,
@@ -138,9 +144,9 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={24}
+          gap={28}
           size={1}
-          color="rgb(39 39 42)"
+          color="var(--hairline)"
         />
         <Controls showInteractive={false} />
       </ReactFlow>

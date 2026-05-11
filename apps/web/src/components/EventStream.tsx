@@ -57,9 +57,9 @@ export function EventStream({ runId, onEvent }: EventStreamProps) {
     return (
       <div
         data-testid="event-stream"
-        className="rounded border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-500"
+        className="border border-hairline bg-paper-deep p-3 font-mono text-xs text-ink-faint"
       >
-        Waiting for events...
+        waiting for events
       </div>
     );
   }
@@ -68,7 +68,7 @@ export function EventStream({ runId, onEvent }: EventStreamProps) {
     <div
       ref={scrollRef}
       data-testid="event-stream"
-      className="max-h-64 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] leading-relaxed text-zinc-300"
+      className="max-h-64 overflow-y-auto border border-hairline bg-paper-deep p-3 font-mono text-xs leading-relaxed text-ink-soft"
     >
       {items.map((item) => (
         <EventLine key={item.id} payload={item.payload} />
@@ -84,9 +84,9 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className="text-zinc-400"
+          className="text-ink-soft"
         >
-          <span className="text-zinc-500">▸</span> {PHASE_LABEL[payload.phase]} started
+          <span className="text-ink-muted">›</span> {PHASE_LABEL[payload.phase]} started
         </div>
       );
     case 'phase_end':
@@ -94,9 +94,9 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className={payload.ok ? 'text-emerald-400' : 'text-red-400'}
+          className={payload.ok ? 'text-ink' : 'text-sanguine'}
         >
-          <span className="text-zinc-500">◂</span> {PHASE_LABEL[payload.phase]}{' '}
+          <span className="text-ink-muted">‹</span> {PHASE_LABEL[payload.phase]}{' '}
           {payload.ok ? 'finished' : 'failed'}
         </div>
       );
@@ -105,7 +105,7 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <span
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className="whitespace-pre-wrap break-words text-zinc-300"
+          className="whitespace-pre-wrap break-words text-ink-soft"
         >
           {payload.text}
         </span>
@@ -115,11 +115,11 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className="text-blue-400"
+          className="text-ink-muted"
         >
-          <span className="text-zinc-500">·</span> tool: {payload.tool}
+          <span className="text-ink-faint">·</span> tool: {payload.tool}
           {payload.argsPreview ? (
-            <span className="text-zinc-500"> {payload.argsPreview}</span>
+            <span className="text-ink-faint"> {payload.argsPreview}</span>
           ) : null}
         </div>
       );
@@ -128,23 +128,23 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className="text-indigo-400"
+          className="text-ink-muted"
         >
           frame {payload.frame}/{payload.totalFrames}
         </div>
       );
     case 'log': {
-      const colour =
+      const tone =
         payload.level === 'error'
-          ? 'text-red-400'
+          ? 'text-sanguine'
           : payload.level === 'warn'
-            ? 'text-amber-400'
-            : 'text-zinc-500';
+            ? 'text-ink-soft'
+            : 'text-ink-faint';
       return (
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className={colour}
+          className={tone}
         >
           [{payload.level}] {payload.message}
         </div>
@@ -155,7 +155,7 @@ function EventLine({ payload }: { payload: EventPayload }) {
         <div
           data-testid="event-row"
           data-event-kind={payload.kind}
-          className="text-red-400"
+          className="text-sanguine"
         >
           error: {payload.message}
         </div>

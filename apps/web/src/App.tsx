@@ -17,17 +17,17 @@ export function App() {
   const isInitialLoad = nodesQuery.isLoading && !nodesQuery.data;
 
   return (
-    <div className="flex h-full w-full flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full w-full flex-col bg-paper text-ink">
       <DebugBridge />
       <Toolbar nodeCount={nodes.length} />
       <div className="flex min-h-0 flex-1">
         <main className="relative min-w-0 flex-1">
           {isInitialLoad ? (
-            <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-              Loading...
+            <div className="flex h-full items-center justify-center font-mono text-xs uppercase tracking-caps text-ink-muted">
+              Loading
             </div>
           ) : nodesQuery.isError ? (
-            <div className="flex h-full items-center justify-center px-6 text-sm text-red-400">
+            <div className="flex h-full items-center justify-center px-6 font-mono text-xs uppercase tracking-caps text-sanguine">
               Failed to load nodes: {nodesQuery.error.message}
             </div>
           ) : nodes.length === 0 ? (

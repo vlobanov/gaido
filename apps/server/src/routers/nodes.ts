@@ -10,7 +10,25 @@ const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
 
 export const nodesRouter = router({
   list: publicProcedure.query(({ ctx }) => {
-    return ctx.db.select().from(schema.nodes).all();
+    return ctx.db
+      .select({
+        id: schema.nodes.id,
+        parentId: schema.nodes.parentId,
+        positionX: schema.nodes.positionX,
+        positionY: schema.nodes.positionY,
+        instruction: schema.nodes.instruction,
+        status: schema.nodes.status,
+        currentRunId: schema.nodes.currentRunId,
+        sessionId: schema.nodes.sessionId,
+        isFavorite: schema.nodes.isFavorite,
+        createdAt: schema.nodes.createdAt,
+        updatedAt: schema.nodes.updatedAt,
+        thumbnailArtifactId: schema.runs.thumbnailArtifactId,
+        videoArtifactId: schema.runs.videoArtifactId,
+      })
+      .from(schema.nodes)
+      .leftJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id))
+      .all();
   }),
 
   get: publicProcedure
