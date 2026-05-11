@@ -16,8 +16,10 @@ dist/
 .env
 .env.local
 
-# Claude Code session/skill state (user-level, not project-level)
-.claude/
+# Claude Code session/skill state — ignored by default, except project skills below
+.claude/*
+!.claude/skills/
+.claude/skills/impeccable/
 skills-lock.json
 
 # Playwright MCP session artifacts
