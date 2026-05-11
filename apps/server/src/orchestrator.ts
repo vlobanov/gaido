@@ -3,9 +3,10 @@ import path from 'node:path';
 import {
   schema,
   runId as newRunId,
+  nodeId as newNodeId,
   artifactId as newArtifactId,
 } from '@gaido/core';
-import type { Run } from '@gaido/core/schema';
+import type { Run, Node } from '@gaido/core/schema';
 import type {
   AdapterConfigSnapshot,
   Critique,
@@ -68,7 +69,7 @@ export class Orchestrator {
       .values({
         id,
         nodeId,
-        status: 'queued',
+        status: 'running',
         configSnapshot: snapshot,
         createdAt: now,
         updatedAt: now,
@@ -77,7 +78,7 @@ export class Orchestrator {
 
     this.db
       .update(schema.nodes)
-      .set({ status: 'queued', currentRunId: id, updatedAt: now })
+      .set({ status: 'running', currentRunId: id, updatedAt: now })
       .where(eq(schema.nodes.id, nodeId))
       .run();
 
@@ -131,122 +132,11 @@ export class Orchestrator {
         .get();
       if (!node) throw new Error(`node ${nodeId} not found`);
 
-      // Coding phase.
-      await this.runPhase(runId, nodeId, 'coding', signal, async () => {
-        // Materialize the worktree before the coder runs. Idempotent on retry.
-        const workdir = await this.workspace.ensureNodeWorkspace({
-          nodeId,
-          parentId: node.parentId ?? undefined,
-        });
-
-        const result = await this.config.coder.run(
-          {
-            instruction: node.instruction,
-            priorSessionId: node.sessionId ?? null,
-          },
-          {
-            nodeId,
-            runId,
-            workdir,
-            outputDir: workdir,
-            abortSignal: signal,
-            logger: makeLogger('coder'),
-            emit: (event) => this.eventBus.publish(runId, event),
-          }
-        );
-
-        // Persist sessionId so the next run on this node can resume.
-        if (result.sessionId && result.sessionId !== node.sessionId) {
-          this.db
-            .update(schema.nodes)
-            .set({ sessionId: result.sessionId, updatedAt: Date.now() })
-            .where(eq(schema.nodes.id, nodeId))
-            .run();
-        }
-      });
-
-      // Commit whatever the coder produced. No-op if no diff.
-      const sha = await this.workspace.commitRun({
-        nodeId,
-        runId,
-        message: `run ${runId}`,
-      });
-      if (sha) {
-        this.db
-          .update(schema.runs)
-          .set({ commitSha: sha, updatedAt: Date.now() })
-          .where(eq(schema.runs.id, runId))
-          .run();
+      if (node.kind === 'critique') {
+        await this.executeCritique(runId, nodeId, node, signal);
+      } else {
+        await this.executeCoder(runId, nodeId, node, signal);
       }
-
-      // Rendering phase. Capture the video path so the critic can read it.
-      let renderedVideoPath: string | null = null;
-      await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
-        const workdir = this.workspace.workspacePath(nodeId);
-        const outputDir = path.join(this.paths.artifactsDir, runId);
-        fs.mkdirSync(outputDir, { recursive: true });
-
-        const result = await this.config.renderer.render(
-          {
-            duration: this.config.render.duration,
-            fps: this.config.render.fps,
-            width: this.config.render.width,
-            height: this.config.render.height,
-          },
-          {
-            nodeId,
-            runId,
-            workdir,
-            outputDir,
-            abortSignal: signal,
-            logger: makeLogger('renderer'),
-            emit: (event) => this.eventBus.publish(runId, event),
-          }
-        );
-
-        if (result.videoPath) {
-          renderedVideoPath = result.videoPath;
-          this.recordArtifact(runId, 'video', result.videoPath, 'video/mp4');
-        }
-        if (result.thumbnailPath) {
-          this.recordArtifact(
-            runId,
-            'thumbnail',
-            result.thumbnailPath,
-            mimeFromPath(result.thumbnailPath)
-          );
-        }
-      });
-
-      // Critiquing phase.
-      let critique: Critique | null = null;
-      await this.runPhase(runId, nodeId, 'critiquing', signal, async () => {
-        if (!renderedVideoPath) {
-          throw new Error(
-            'critic skipped: renderer produced no video — cannot evaluate'
-          );
-        }
-        const workdir = this.workspace.workspacePath(nodeId);
-        const result = await this.config.critic.critique(
-          {
-            videoPath: renderedVideoPath,
-            codePath: workdir,
-            prompt: node.instruction,
-          },
-          {
-            nodeId,
-            runId,
-            workdir,
-            outputDir: path.join(this.paths.artifactsDir, runId),
-            abortSignal: signal,
-            logger: makeLogger('critic'),
-            emit: (event) => this.eventBus.publish(runId, event),
-          }
-        );
-        critique = result.critique;
-      });
-
-      this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
     } catch (err) {
       if (signal.aborted) {
         this.setRunStatus(runId, nodeId, 'cancelled', {});
@@ -262,6 +152,209 @@ export class Orchestrator {
     }
   }
 
+  private async executeCoder(
+    runId: string,
+    nodeId: string,
+    node: Node,
+    signal: AbortSignal
+  ): Promise<void> {
+    // Coding phase.
+    await this.runPhase(runId, nodeId, 'coding', signal, async () => {
+      // Critique ancestors have no branch — walk up to the nearest coder.
+      const branchParentId = this.resolveBranchParentId(node.parentId);
+      const workdir = await this.workspace.ensureNodeWorkspace({
+        nodeId,
+        branchParentId,
+      });
+
+      const result = await this.config.coder.run(
+        {
+          instruction: node.instruction,
+          priorSessionId: node.sessionId ?? null,
+        },
+        {
+          nodeId,
+          runId,
+          workdir,
+          outputDir: workdir,
+          abortSignal: signal,
+          logger: makeLogger('coder'),
+          emit: (event) => this.eventBus.publish(runId, event),
+        }
+      );
+
+      // Persist sessionId so the next run on this node can resume.
+      if (result.sessionId && result.sessionId !== node.sessionId) {
+        this.db
+          .update(schema.nodes)
+          .set({ sessionId: result.sessionId, updatedAt: Date.now() })
+          .where(eq(schema.nodes.id, nodeId))
+          .run();
+      }
+    });
+
+    // Commit whatever the coder produced. No-op if no diff.
+    const sha = await this.workspace.commitRun({
+      nodeId,
+      runId,
+      message: `run ${runId}`,
+    });
+    if (sha) {
+      this.db
+        .update(schema.runs)
+        .set({ commitSha: sha, updatedAt: Date.now() })
+        .where(eq(schema.runs.id, runId))
+        .run();
+    }
+
+    // Rendering phase.
+    await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
+      const workdir = this.workspace.workspacePath(nodeId);
+      const outputDir = path.join(this.paths.artifactsDir, runId);
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      const result = await this.config.renderer.render(
+        {
+          duration: this.config.render.duration,
+          fps: this.config.render.fps,
+          width: this.config.render.width,
+          height: this.config.render.height,
+        },
+        {
+          nodeId,
+          runId,
+          workdir,
+          outputDir,
+          abortSignal: signal,
+          logger: makeLogger('renderer'),
+          emit: (event) => this.eventBus.publish(runId, event),
+        }
+      );
+
+      if (result.videoPath) {
+        this.recordArtifact(runId, 'video', result.videoPath, 'video/mp4');
+      }
+      if (result.thumbnailPath) {
+        this.recordArtifact(
+          runId,
+          'thumbnail',
+          result.thumbnailPath,
+          mimeFromPath(result.thumbnailPath)
+        );
+      }
+    });
+
+    this.setRunStatus(runId, nodeId, 'done', {});
+    this.autoSpawnCritiqueChild(node);
+  }
+
+  private async executeCritique(
+    runId: string,
+    nodeId: string,
+    node: Node,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (!node.parentId) {
+      throw new Error('critique node missing parent');
+    }
+    const parent = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, node.parentId))
+      .get();
+    if (!parent || parent.kind !== 'coder') {
+      throw new Error('critique parent must be a coder node');
+    }
+    if (!parent.currentRunId) {
+      throw new Error('parent coder has no completed run yet');
+    }
+    const parentRun = this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, parent.currentRunId))
+      .get();
+    if (!parentRun || !parentRun.videoArtifactId) {
+      throw new Error('parent coder has no rendered video to evaluate');
+    }
+    const videoArtifact = this.db
+      .select()
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, parentRun.videoArtifactId))
+      .get();
+    if (!videoArtifact) {
+      throw new Error('parent video artifact row missing');
+    }
+
+    let critique: Critique | null = null;
+    await this.runPhase(runId, nodeId, 'critiquing', signal, async () => {
+      const codePath = this.workspace.workspacePath(parent.id);
+      const result = await this.config.critic.critique(
+        {
+          videoPath: videoArtifact.path,
+          codePath,
+          prompt: parent.instruction,
+        },
+        {
+          nodeId,
+          runId,
+          workdir: codePath,
+          outputDir: path.join(this.paths.artifactsDir, runId),
+          abortSignal: signal,
+          logger: makeLogger('critic'),
+          emit: (event) => this.eventBus.publish(runId, event),
+        }
+      );
+      critique = result.critique;
+    });
+
+    this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
+  }
+
+  /**
+   * Walk up the parent chain until we find a coder-kind node — that's the
+   * one whose branch we should fork from. Critique nodes have no branch.
+   */
+  private resolveBranchParentId(startParentId: string | null): string | undefined {
+    let cursor: string | null = startParentId;
+    while (cursor) {
+      const p = this.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, cursor))
+        .get();
+      if (!p) return undefined;
+      if (p.kind === 'coder') return p.id;
+      cursor = p.parentId;
+    }
+    return undefined;
+  }
+
+  /**
+   * After a coder run lands `done`, ensure a critique child exists. The
+   * partial unique index `(parent_id) WHERE kind='critique'` makes the
+   * insert a no-op on retry of an already-done coder.
+   */
+  private autoSpawnCritiqueChild(coder: Node): void {
+    const id = newNodeId();
+    const now = Date.now();
+    this.db
+      .insert(schema.nodes)
+      .values({
+        id,
+        parentId: coder.id,
+        kind: 'critique',
+        positionX: coder.positionX,
+        positionY: coder.positionY + 220,
+        instruction: coder.instruction,
+        status: 'idle',
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
   private async runPhase(
     runId: string,
     nodeId: string,
@@ -274,7 +367,7 @@ export class Orchestrator {
     this.db
       .update(schema.runs)
       .set({
-        status: phase,
+        status: 'running',
         ...phaseStartColumn(phase, startedAt),
         updatedAt: startedAt,
       })
@@ -282,7 +375,7 @@ export class Orchestrator {
       .run();
     this.db
       .update(schema.nodes)
-      .set({ status: phase, updatedAt: startedAt })
+      .set({ status: 'running', updatedAt: startedAt })
       .where(eq(schema.nodes.id, nodeId))
       .run();
 

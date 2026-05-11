@@ -43,10 +43,39 @@ export function stubCoder(): Coder {
   };
 }
 
+/**
+ * Stub critic. Returns canned Critique data referencing the prompt so the
+ * UI end-to-end flow works on `gaido init` without a real critic adapter.
+ */
 export function stubCritic(): Critic {
   return {
     kind: 'stub',
-    critique: notImplemented('critic'),
+    async critique(input, ctx) {
+      const tokens = ['Stub critic ', 'evaluating ', 'output...'];
+      for (const text of tokens) {
+        if (ctx.abortSignal.aborted) {
+          const e = new Error('aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
+        ctx.emit({ kind: 'agent_token', phase: 'critiquing', text });
+        await sleep(150, ctx.abortSignal);
+      }
+
+      const prompt = input.prompt.trim() || '(no prompt)';
+      return {
+        critique: {
+          overall: `Stub critique of: "${prompt}". Replace stubCritic in gaido.config.ts with a real adapter to evaluate renders.`,
+          rating: 3,
+          strengths: ['Renders without errors', 'Honors the prompt shape'],
+          weaknesses: ['No real evaluation happened — this is canned output'],
+          suggestions: [
+            'Wire up @gaido/adapter-claude-code or another Critic implementation',
+            'Iterate on the skeleton/CLAUDE.md to guide the coder',
+          ],
+        },
+      };
+    },
   };
 }
 

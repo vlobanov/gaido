@@ -14,6 +14,7 @@ export const nodesRouter = router({
       .select({
         id: schema.nodes.id,
         parentId: schema.nodes.parentId,
+        kind: schema.nodes.kind,
         positionX: schema.nodes.positionX,
         positionY: schema.nodes.positionY,
         instruction: schema.nodes.instruction,
@@ -25,6 +26,12 @@ export const nodesRouter = router({
         updatedAt: schema.nodes.updatedAt,
         thumbnailArtifactId: schema.runs.thumbnailArtifactId,
         videoArtifactId: schema.runs.videoArtifactId,
+        codingStartedAt: schema.runs.codingStartedAt,
+        codingFinishedAt: schema.runs.codingFinishedAt,
+        renderingStartedAt: schema.runs.renderingStartedAt,
+        renderingFinishedAt: schema.runs.renderingFinishedAt,
+        critiquingStartedAt: schema.runs.critiquingStartedAt,
+        critiquingFinishedAt: schema.runs.critiquingFinishedAt,
       })
       .from(schema.nodes)
       .leftJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id))
@@ -67,10 +74,11 @@ export const nodesRouter = router({
         .values({
           id,
           parentId: null,
+          kind: 'coder',
           positionX: input.position?.x ?? 0,
           positionY: input.position?.y ?? 0,
           instruction: input.instruction,
-          status: 'pending',
+          status: 'idle',
           isFavorite: false,
           createdAt: now,
           updatedAt: now,
@@ -85,6 +93,12 @@ export const nodesRouter = router({
       return { node, run };
     }),
 
+  /**
+   * Create a coder child under a critique parent. Forking from a coder
+   * directly is rejected — chain integrity (coder → critique → coder) is
+   * enforced here. The UI fork action on a coder card resolves to the
+   * coder's auto-spawned critique child before calling this.
+   */
   createChild: publicProcedure
     .input(
       z.object({
@@ -105,6 +119,12 @@ export const nodesRouter = router({
           message: `parent node ${input.parentId}`,
         });
       }
+      if (parent.kind !== 'critique') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'fork parent must be a critique node',
+        });
+      }
       const id = newNodeId();
       const now = Date.now();
       // Default child position offsets below the parent if none supplied.
@@ -116,10 +136,11 @@ export const nodesRouter = router({
         .values({
           id,
           parentId: parent.id,
+          kind: 'coder',
           positionX: x,
           positionY: y,
           instruction: input.instruction,
-          status: 'pending',
+          status: 'idle',
           isFavorite: false,
           createdAt: now,
           updatedAt: now,
@@ -221,7 +242,7 @@ export const nodesRouter = router({
         .from(schema.runs)
         .where(inArray(schema.runs.nodeId, toDelete))
         .all();
-      const runIds = runs.map((r) => r.id);
+      const runIds = runs.map((r: { id: string }) => r.id);
 
       // Cancel any in-flight runs we're about to delete.
       for (const id of toDelete) ctx.orchestrator.cancel(id);

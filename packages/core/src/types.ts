@@ -1,15 +1,14 @@
 export type NodeStatus =
-  | 'pending'
-  | 'queued'
-  | 'coding'
-  | 'rendering'
-  | 'critiquing'
+  | 'idle'
+  | 'running'
   | 'done'
-  | 'interrupted'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'interrupted';
 
 export type RunStatus = NodeStatus;
+
+export type NodeKind = 'coder' | 'critique';
 
 export type ArtifactKind = 'code' | 'video' | 'thumbnail' | 'frame' | 'log';
 

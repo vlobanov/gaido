@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fcf707e3-60ea-499f-893b-5277be6f34e5",
+  "id": "7c1becb5-1d45-40cf-bf65-7d57e9775350",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -136,6 +136,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'coder'"
+        },
         "position_x": {
           "name": "position_x",
           "type": "real",
@@ -165,10 +173,17 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'pending'"
+          "default": "'idle'"
         },
         "current_run_id": {
           "name": "current_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -213,6 +228,21 @@
             "status"
           ],
           "isUnique": false
+        },
+        "nodes_kind_idx": {
+          "name": "nodes_kind_idx",
+          "columns": [
+            "kind"
+          ],
+          "isUnique": false
+        },
+        "nodes_critique_per_parent_idx": {
+          "name": "nodes_critique_per_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": true,
+          "where": "\"nodes\".\"kind\" = 'critique'"
         }
       },
       "foreignKeys": {},
@@ -243,7 +273,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'pending'"
+          "default": "'idle'"
         },
         "coding_started_at": {
           "name": "coding_started_at",
@@ -310,6 +340,13 @@
         },
         "thumbnail_artifact_id": {
           "name": "thumbnail_artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "commit_sha": {
+          "name": "commit_sha",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

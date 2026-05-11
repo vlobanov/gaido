@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1778250655286,
-      "tag": "0000_open_pandemic",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1778255082354,
-      "tag": "0001_zippy_komodo",
+      "when": 1778498473061,
+      "tag": "0000_cute_rhodey",
       "breakpoints": true
     }
   ]

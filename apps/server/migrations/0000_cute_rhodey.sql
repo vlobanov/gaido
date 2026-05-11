@@ -20,11 +20,13 @@ CREATE INDEX `events_run_ts_idx` ON `events` (`run_id`,`ts`);--> statement-break
 CREATE TABLE `nodes` (
 	`id` text PRIMARY KEY NOT NULL,
 	`parent_id` text,
+	`kind` text DEFAULT 'coder' NOT NULL,
 	`position_x` real DEFAULT 0 NOT NULL,
 	`position_y` real DEFAULT 0 NOT NULL,
 	`instruction` text NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
+	`status` text DEFAULT 'idle' NOT NULL,
 	`current_run_id` text,
+	`session_id` text,
 	`is_favorite` integer DEFAULT false NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
@@ -32,10 +34,12 @@ CREATE TABLE `nodes` (
 --> statement-breakpoint
 CREATE INDEX `nodes_parent_idx` ON `nodes` (`parent_id`);--> statement-breakpoint
 CREATE INDEX `nodes_status_idx` ON `nodes` (`status`);--> statement-breakpoint
+CREATE INDEX `nodes_kind_idx` ON `nodes` (`kind`);--> statement-breakpoint
+CREATE UNIQUE INDEX `nodes_critique_per_parent_idx` ON `nodes` (`parent_id`) WHERE "nodes"."kind" = 'critique';--> statement-breakpoint
 CREATE TABLE `runs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`node_id` text NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
+	`status` text DEFAULT 'idle' NOT NULL,
 	`coding_started_at` integer,
 	`coding_finished_at` integer,
 	`rendering_started_at` integer,
@@ -46,6 +50,7 @@ CREATE TABLE `runs` (
 	`code_artifact_id` text,
 	`video_artifact_id` text,
 	`thumbnail_artifact_id` text,
+	`commit_sha` text,
 	`critique` text,
 	`cost_usd` real,
 	`tokens_in` integer,

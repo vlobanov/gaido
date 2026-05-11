@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import type { NodeStatus, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot } from './types.js';
+import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot } from './types.js';
 import type { EventPayload } from './events.js';
 
 export const nodes = sqliteTable(
@@ -8,10 +8,11 @@ export const nodes = sqliteTable(
   {
     id: text('id').primaryKey(),
     parentId: text('parent_id'),
+    kind: text('kind').$type<NodeKind>().notNull().default('coder'),
     positionX: real('position_x').notNull().default(0),
     positionY: real('position_y').notNull().default(0),
     instruction: text('instruction').notNull(),
-    status: text('status').$type<NodeStatus>().notNull().default('pending'),
+    status: text('status').$type<NodeStatus>().notNull().default('idle'),
     currentRunId: text('current_run_id'),
     sessionId: text('session_id'),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
@@ -21,6 +22,11 @@ export const nodes = sqliteTable(
   (table) => ({
     parentIdx: index('nodes_parent_idx').on(table.parentId),
     statusIdx: index('nodes_status_idx').on(table.status),
+    kindIdx: index('nodes_kind_idx').on(table.kind),
+    // One critique child per parent. Prevents double auto-spawn.
+    critiqueChildIdx: uniqueIndex('nodes_critique_per_parent_idx')
+      .on(table.parentId)
+      .where(sql`${table.kind} = 'critique'`),
   })
 );
 
@@ -29,7 +35,7 @@ export const runs = sqliteTable(
   {
     id: text('id').primaryKey(),
     nodeId: text('node_id').notNull(),
-    status: text('status').$type<RunStatus>().notNull().default('pending'),
+    status: text('status').$type<RunStatus>().notNull().default('idle'),
     codingStartedAt: integer('coding_started_at'),
     codingFinishedAt: integer('coding_finished_at'),
     renderingStartedAt: integer('rendering_started_at'),

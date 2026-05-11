@@ -20,12 +20,22 @@ export interface GaidoDebug {
 
   trigger: {
     createRoot(instruction: string): Promise<unknown>;
-    fork(parentId: string, instruction: string): Promise<unknown>;
+    /**
+     * Fork a coder node: waits for its auto-spawned critique child to exist,
+     * then creates a new coder under that critique. Multiple forks from the
+     * same coder produce sibling coders under the same critique.
+     */
+    fork(coderNodeId: string, instruction: string): Promise<unknown>;
+    /** Start the first run for an idle critique node (or retry a terminal one). */
+    runCritique(critiqueNodeId: string): Promise<unknown>;
     select(nodeId: string | null): void;
     retry(nodeId: string): Promise<unknown>;
     cancel(nodeId: string): Promise<unknown>;
     delete(nodeId: string): Promise<unknown>;
   };
+
+  /** Convenience helper for tests: find a coder's auto-spawned critique child. */
+  critiqueChildOf(coderNodeId: string): NodeRow | null;
 
   waitFor(predicate: () => boolean, opts?: WaitForOpts): Promise<void>;
   waitForNodeStatus(
@@ -108,6 +118,15 @@ export function DebugBridge() {
   );
 
   useEffect(() => {
+    const findCritiqueChild = (coderNodeId: string): NodeRow | null => {
+      const list = utils.nodes.list.getData() ?? [];
+      return (
+        list.find(
+          (n) => n.parentId === coderNodeId && n.kind === 'critique'
+        ) ?? null
+      );
+    };
+
     const debug: GaidoDebug = {
       nodes() {
         return utils.nodes.list.getData() ?? [];
@@ -116,14 +135,42 @@ export function DebugBridge() {
         return useUiStore.getState().selectedNodeId;
       },
       events: eventsRef.current,
+      critiqueChildOf: findCritiqueChild,
       trigger: {
         async createRoot(instruction: string) {
           const result = await createRoot.mutateAsync({ instruction });
           await utils.nodes.list.invalidate();
           return result;
         },
-        async fork(parentId: string, instruction: string) {
-          const result = await createChild.mutateAsync({ parentId, instruction });
+        async fork(coderNodeId: string, instruction: string) {
+          // Wait for the coder to finish AND for its auto-spawned critique
+          // child to appear in the cached node list.
+          await waitFor(
+            () => {
+              const list = utils.nodes.list.getData() ?? [];
+              const coder = list.find((n) => n.id === coderNodeId);
+              if (!coder || coder.status !== 'done') return false;
+              return list.some(
+                (n) => n.parentId === coderNodeId && n.kind === 'critique'
+              );
+            },
+            { timeoutMs: 60_000 }
+          );
+          const critique = findCritiqueChild(coderNodeId);
+          if (!critique) {
+            throw new Error(
+              `No critique child found for coder ${coderNodeId}`
+            );
+          }
+          const result = await createChild.mutateAsync({
+            parentId: critique.id,
+            instruction,
+          });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
+        async runCritique(critiqueNodeId: string) {
+          const result = await retry.mutateAsync({ nodeId: critiqueNodeId });
           await utils.nodes.list.invalidate();
           return result;
         },

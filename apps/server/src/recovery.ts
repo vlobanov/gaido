@@ -3,7 +3,7 @@ import type { NodeStatus } from '@gaido/core';
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from './db.js';
 
-const NON_TERMINAL: NodeStatus[] = ['queued', 'coding', 'rendering', 'critiquing'];
+const NON_TERMINAL: NodeStatus[] = ['running'];
 
 /**
  * On startup, any run still in a non-terminal state was left mid-flight by a

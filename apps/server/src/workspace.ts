@@ -13,7 +13,12 @@ export interface CommitRunArgs {
 
 export interface EnsureNodeArgs {
   nodeId: string;
-  parentId?: string;
+  /**
+   * Branch this node's worktree off `node/<branchParentId>`'s tip. Must point
+   * at the nearest coder-kind ancestor (critique nodes have no branch). If
+   * omitted, branches off `main`.
+   */
+  branchParentId?: string;
 }
 
 export interface WorkspaceManager {
@@ -25,7 +30,7 @@ export interface WorkspaceManager {
   initStore(): Promise<void>;
   /**
    * Create a worktree for `nodeId` if missing. Branch `node/<nodeId>` is cut
-   * from `node/<parentId>`'s tip if parentId is given, otherwise from `main`.
+   * from `node/<branchParentId>`'s tip if given, otherwise from `main`.
    * Returns the worktree path. Idempotent.
    */
   ensureNodeWorkspace(args: EnsureNodeArgs): Promise<string>;
@@ -121,7 +126,7 @@ export function createWorkspaceManager(
     if (await branchExists(branch)) {
       await git('worktree', 'add', wt, branch);
     } else {
-      const from = args.parentId ? branchOf(args.parentId) : 'main';
+      const from = args.branchParentId ? branchOf(args.branchParentId) : 'main';
       await git('worktree', 'add', '-b', branch, wt, from);
     }
     return wt;

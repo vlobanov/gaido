@@ -12,14 +12,16 @@ import {
   type NodeTypes,
   type OnNodesChange,
 } from '@xyflow/react';
-import type { NodeStatus } from '@gaido/core';
+import type { NodeKind, NodeStatus } from '@gaido/core';
 import { trpc } from '../lib/trpc';
 import { useUiStore } from '../store';
-import { NodeCard, type NodeCardData } from './NodeCard';
+import { CoderCard, type CoderCardData } from './CoderCard';
+import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';
 
 interface GaidoNode {
   id: string;
   parentId: string | null;
+  kind: NodeKind;
   positionX: number;
   positionY: number;
   instruction: string;
@@ -28,14 +30,23 @@ interface GaidoNode {
   currentRunId: string | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  codingStartedAt: number | null;
+  codingFinishedAt: number | null;
+  renderingStartedAt: number | null;
+  renderingFinishedAt: number | null;
+  critiquingStartedAt: number | null;
+  critiquingFinishedAt: number | null;
 }
 
 interface GraphProps {
   nodes: GaidoNode[];
 }
 
+type CardData = CoderCardData | CritiqueCardData;
+
 const nodeTypes: NodeTypes = {
-  gaido: NodeCard,
+  coder: CoderCard,
+  critique: CritiqueCard,
 };
 
 export function Graph({ nodes: serverNodes }: GraphProps) {
@@ -45,11 +56,11 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
 
   // Local copy of node positions, kept in sync with server but allowing
   // instant drag feedback without waiting for the round-trip.
-  const flowNodes = useMemo<Node<NodeCardData>[]>(
+  const flowNodes = useMemo<Node<CardData>[]>(
     () =>
       serverNodes.map((n) => ({
         id: n.id,
-        type: 'gaido',
+        type: n.kind,
         position: { x: n.positionX, y: n.positionY },
         data: {
           id: n.id,
@@ -59,6 +70,12 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           currentRunId: n.currentRunId,
           thumbnailArtifactId: n.thumbnailArtifactId,
           videoArtifactId: n.videoArtifactId,
+          codingStartedAt: n.codingStartedAt,
+          codingFinishedAt: n.codingFinishedAt,
+          renderingStartedAt: n.renderingStartedAt,
+          renderingFinishedAt: n.renderingFinishedAt,
+          critiquingStartedAt: n.critiquingStartedAt,
+          critiquingFinishedAt: n.critiquingFinishedAt,
           selected: n.id === selectedNodeId,
         },
         selected: n.id === selectedNodeId,
@@ -93,8 +110,8 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
     []
   );
 
-  const onNodesChange: OnNodesChange<Node<NodeCardData>> = useCallback(
-    (changes: NodeChange<Node<NodeCardData>>[]) => {
+  const onNodesChange: OnNodesChange<Node<CardData>> = useCallback(
+    (changes: NodeChange<Node<CardData>>[]) => {
       // Apply locally for snappy drag UX
       localNodesRef.current = applyNodeChanges(changes, localNodesRef.current);
 

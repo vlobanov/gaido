@@ -1,11 +1,16 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NodeStatus } from '@gaido/core';
-import { StatusBadge, isActiveStatus } from './StatusBadge';
+import {
+  StatusBadge,
+  activePhase,
+  isActiveStatus,
+  type PhaseTiming,
+} from './StatusBadge';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
 
-export interface NodeCardData {
+export interface CoderCardData extends PhaseTiming {
   id: string;
   instruction: string;
   status: NodeStatus;
@@ -17,26 +22,14 @@ export interface NodeCardData {
   [key: string]: unknown;
 }
 
-const PHASE_TICKS: Record<NodeStatus, number> = {
-  pending: 0,
-  queued: 0,
-  coding: 1,
-  rendering: 2,
-  critiquing: 2,
-  done: 3,
-  failed: 0,
-  cancelled: 0,
-  interrupted: 0,
-};
-
 const FAILED_LIKE: ReadonlySet<NodeStatus> = new Set([
   'failed',
   'cancelled',
   'interrupted',
 ]);
 
-function NodeCardComponent({ data, selected }: NodeProps) {
-  const d = data as unknown as NodeCardData;
+function CoderCardComponent({ data, selected }: NodeProps) {
+  const d = data as unknown as CoderCardData;
   const utils = trpc.useUtils();
   const setFavorite = trpc.nodes.setFavorite.useMutation({
     onSuccess: () => utils.nodes.list.invalidate(),
@@ -56,6 +49,7 @@ function NodeCardComponent({ data, selected }: NodeProps) {
     <div
       data-testid="node-card"
       data-node-id={d.id}
+      data-node-kind="coder"
       data-status={d.status}
       data-favorite={String(d.isFavorite)}
       className={`group w-64 border bg-paper transition-colors ${borderCls}`}
@@ -91,8 +85,8 @@ function NodeCardComponent({ data, selected }: NodeProps) {
 
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <PhaseTicks status={d.status} active={active} done={done} failed={failed} />
-          <StatusBadge status={d.status} />
+          <PhaseTicks data={d} active={active} done={done} failed={failed} />
+          <StatusBadge status={d.status} kind="coder" timing={d} />
         </div>
         <FavoriteToggle
           isFavorite={d.isFavorite}
@@ -147,29 +141,39 @@ function Frame({
   );
 }
 
+/**
+ * Two ticks: coding and rendering. Active tick derived from run timing
+ * columns rather than the (kind-agnostic) status field.
+ */
 function PhaseTicks({
-  status,
+  data,
   active,
   done,
   failed,
 }: {
-  status: NodeStatus;
+  data: CoderCardData;
   active: boolean;
   done: boolean;
   failed: boolean;
 }) {
-  const filled = PHASE_TICKS[status];
+  const phase = activePhase(data);
+  let filled = 0;
+  if (done) filled = 2;
+  else if (data.renderingFinishedAt) filled = 2;
+  else if (data.renderingStartedAt) filled = 1;
+  else if (data.codingFinishedAt) filled = 1;
+
   return (
-    <div
-      className="inline-flex items-center gap-1"
-      aria-label={`phase ${filled} of 3`}
-    >
-      {[0, 1, 2].map((i) => {
+    <div className="inline-flex items-center gap-1" aria-label={`phase ${filled} of 2`}>
+      {[0, 1].map((i) => {
         const isFilled = i < filled;
-        const isLiveActive = active && i === filled;
+        const isLiveActive =
+          active &&
+          ((i === 0 && phase === 'coding') ||
+            (i === 1 && phase === 'rendering'));
         let tickCls: string;
         if (isFilled) {
-          tickCls = done ? 'bg-ink' : 'bg-ink';
+          tickCls = 'bg-ink';
         } else if (isLiveActive) {
           tickCls = 'animate-breathe-tick';
         } else if (failed) {
@@ -177,12 +181,7 @@ function PhaseTicks({
         } else {
           tickCls = 'bg-hairline-deep';
         }
-        return (
-          <span
-            key={i}
-            className={`block h-[2px] w-3 ${tickCls}`}
-          />
-        );
+        return <span key={i} className={`block h-[2px] w-3 ${tickCls}`} />;
       })}
     </div>
   );
@@ -217,4 +216,4 @@ function FavoriteToggle({
   );
 }
 
-export const NodeCard = memo(NodeCardComponent);
+export const CoderCard = memo(CoderCardComponent);
