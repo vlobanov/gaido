@@ -74,6 +74,9 @@ export function stubCritic(): Critic {
             'Wire up @gaido/adapter-claude-code or another Critic implementation',
             'Iterate on the skeleton/CLAUDE.md to guide the coder',
           ],
+          proposedRules: [
+            'Stub rules: replace this critic with a real adapter to get useful proposals.',
+          ],
         },
       };
     },

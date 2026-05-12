@@ -20,6 +20,12 @@ export interface Critique {
   strengths: string[];
   weaknesses: string[];
   suggestions: string[];
+  /**
+   * Generic rules the critic believes should apply to every future render in
+   * this project. Surfaced in the UI with one-click promotion to LESSONS.md.
+   * Optional so older runs (and human-only critics) round-trip cleanly.
+   */
+  proposedRules?: string[];
 }
 
 export interface RunError {

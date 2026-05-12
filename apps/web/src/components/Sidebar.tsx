@@ -301,6 +301,8 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           </Section>
         ) : null}
 
+        <RulesPanel proposedRules={currentRun?.critique?.proposedRules ?? []} />
+
         <RunDetails kind="critique" runId={node.currentRunId ?? null} />
 
         {active && node.currentRunId ? (
@@ -347,6 +349,100 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
       ) : null}
     </SidebarShell>
   );
+}
+
+function RulesPanel({ proposedRules }: { proposedRules: string[] }) {
+  const utils = trpc.useUtils();
+  const lessonsQuery = trpc.lessons.get.useQuery();
+  const promote = trpc.lessons.promote.useMutation({
+    onSuccess: () => utils.lessons.get.invalidate(),
+  });
+  const [draft, setDraft] = useState('');
+
+  const promotedSet = useMemo(() => {
+    const contents = lessonsQuery.data?.contents ?? '';
+    return new Set(
+      contents
+        .split('\n')
+        .map((line) => normalizeRule(line))
+        .filter((line) => line.length > 0)
+    );
+  }, [lessonsQuery.data?.contents]);
+
+  const isPromoted = (rule: string) => promotedSet.has(normalizeRule(rule));
+
+  const onAddDraft = (e: React.FormEvent) => {
+    e.preventDefault();
+    const rule = draft.trim();
+    if (!rule) return;
+    promote.mutate(
+      { rule },
+      {
+        onSuccess: () => setDraft(''),
+      }
+    );
+  };
+
+  return (
+    <Section label="Project rules">
+      {proposedRules.length > 0 ? (
+        <ul data-testid="proposed-rules" className="space-y-2">
+          {proposedRules.map((rule, i) => {
+            const done = isPromoted(rule);
+            return (
+              <li key={i} className="flex items-start gap-3">
+                <span className="mt-2 text-ink-faint">·</span>
+                <span className="flex-1 font-serif text-sm leading-snug text-ink-soft">
+                  {rule}
+                </span>
+                <button
+                  type="button"
+                  disabled={done || promote.isPending}
+                  onClick={() => promote.mutate({ rule })}
+                  data-testid="promote-rule"
+                  className="shrink-0 border border-hairline-deep bg-paper px-2.5 py-1 font-mono text-[10px] uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:cursor-default disabled:border-hairline disabled:bg-paper disabled:text-ink-faint"
+                >
+                  {done ? '✓ in rules' : 'Promote'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      <form onSubmit={onAddDraft} className="flex items-stretch gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add a rule…"
+          data-testid="add-rule-input"
+          className="flex-1 border border-hairline bg-paper-deep px-3 py-2 font-serif text-sm text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+        />
+        <button
+          type="submit"
+          disabled={!draft.trim() || promote.isPending}
+          data-testid="add-rule-submit"
+          className="border border-hairline-deep bg-paper px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40"
+        >
+          Add
+        </button>
+      </form>
+
+      {promote.error ? (
+        <p className="font-mono text-xs text-sanguine">{promote.error.message}</p>
+      ) : null}
+    </Section>
+  );
+}
+
+function normalizeRule(line: string): string {
+  return line
+    .replace(/^\s*[-•*]\s*/, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,!?;:]+$/, '')
+    .trim();
 }
 
 function SidebarShell({

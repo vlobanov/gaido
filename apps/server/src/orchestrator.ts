@@ -178,6 +178,14 @@ export class Orchestrator {
         branchParentId,
       });
 
+      // Compute the rules-prefixed instruction once, outside the retry loop.
+      // Inject project rules only when starting a fresh session — on resume
+      // the rules are already in the conversation history from turn 1, and
+      // retries within the check loop reuse that same session.
+      const instruction = sessionId
+        ? node.instruction
+        : prependLessons(node.instruction, this.paths.lessonsFile);
+
       let followUp: string | undefined;
       let attempt = 0;
 
@@ -187,7 +195,7 @@ export class Orchestrator {
 
         const result = await this.config.coder.run(
           {
-            instruction: node.instruction,
+            instruction,
             priorSessionId: sessionId,
             ...(followUp ? { followUp } : {}),
           },
@@ -639,6 +647,17 @@ function toRunError(err: unknown): RunError {
     };
   }
   return { phase: 'startup', message: String(err) };
+}
+
+function prependLessons(instruction: string, lessonsFile: string): string {
+  let body: string;
+  try {
+    body = fs.readFileSync(lessonsFile, 'utf8').trim();
+  } catch {
+    return instruction;
+  }
+  if (!body) return instruction;
+  return `PROJECT RULES (apply to every render in this project):\n\n${body}\n\n---\n\n${instruction}`;
 }
 
 function makeLogger(prefix: string): Logger {

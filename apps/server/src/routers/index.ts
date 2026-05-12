@@ -3,12 +3,14 @@ import { nodesRouter } from './nodes.js';
 import { runsRouter } from './runs.js';
 import { eventsRouter } from './events.js';
 import { systemRouter } from './system.js';
+import { lessonsRouter } from './lessons.js';
 
 export const appRouter = router({
   nodes: nodesRouter,
   runs: runsRouter,
   events: eventsRouter,
   system: systemRouter,
+  lessons: lessonsRouter,
 });
 
 export type AppRouter = typeof appRouter;

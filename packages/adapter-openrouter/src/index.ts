@@ -181,8 +181,11 @@ function buildPrompt(originalInstruction: string): string {
     `  "rating": 1-5,`,
     `  "strengths": ["...", "..."],`,
     `  "weaknesses": ["...", "..."],`,
-    `  "suggestions": ["...", "..."]`,
+    `  "suggestions": ["...", "..."],`,
+    `  "proposedRules": ["...", "..."]`,
     `}`,
+    ``,
+    `proposedRules: short, generic rules that should apply to EVERY future render in this project — not to this one specifically. Examples of the right shape: "Never let animations pause for more than 200ms", "Avoid pure white backgrounds". Examples of the wrong shape (too specific): "The blue square should be slower". Omit the field or use an empty array if nothing generic applies.`,
     ``,
     `Be concrete and specific to what you see. No filler.`,
   ].join('\n');

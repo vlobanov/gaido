@@ -7,6 +7,7 @@ This file is the orientation. Detail lives in the imports below; code is the sou
 @docs/architecture.md
 @docs/graph-model.md
 @docs/conventions.md
+@docs/lessons.md
 
 ## Where else to look
 

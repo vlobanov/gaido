@@ -7,6 +7,7 @@ export interface Paths {
   runsDir: string;
   artifactsDir: string;
   skeletonDir: string;
+  lessonsFile: string;
   migrationsDir: string;
 }
 
@@ -27,6 +28,10 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     // single .gitignore'd top-level dir.
     artifactsDir: path.join(runsDir, '.artifacts'),
     skeletonDir: path.join(projectDir, 'skeleton'),
+    // Project-wide rules promoted from critiques (or added manually by the
+    // artist). Read by the orchestrator and prepended to coder instructions
+    // on fresh sessions. File is created lazily on first promotion.
+    lessonsFile: path.join(projectDir, 'LESSONS.md'),
     migrationsDir,
   };
 }
