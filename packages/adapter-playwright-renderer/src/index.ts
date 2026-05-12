@@ -10,6 +10,11 @@ import type {
   RunContext,
 } from '@gaido/core';
 
+export {
+  playwrightRecordRenderer,
+  type PlaywrightRecordRendererOpts,
+} from './record.js';
+
 export interface PlaywrightRendererOpts {
   /** Path to the ffmpeg binary. Default: 'ffmpeg' (resolved via PATH). */
   ffmpegBin?: string;

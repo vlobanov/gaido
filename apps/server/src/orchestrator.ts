@@ -22,6 +22,8 @@ import type { EventBus } from './event-bus.js';
 import type { ResolvedConfig } from './config-loader.js';
 import type { WorkspaceManager } from './workspace.js';
 import type { Paths } from './paths.js';
+import type { PreviewServerHandle } from './preview-server.js';
+import { runChecks, formatFollowUp } from './checks.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
 
 interface OrchestratorDeps {
@@ -30,6 +32,7 @@ interface OrchestratorDeps {
   config: ResolvedConfig;
   workspace: WorkspaceManager;
   paths: Paths;
+  previewServer: PreviewServerHandle | null;
 }
 
 /**
@@ -45,6 +48,7 @@ export class Orchestrator {
   private readonly config: ResolvedConfig;
   private readonly workspace: WorkspaceManager;
   private readonly paths: Paths;
+  private readonly previewServer: PreviewServerHandle | null;
   private readonly active = new Map<string, AbortController>();
 
   constructor(deps: OrchestratorDeps) {
@@ -53,6 +57,7 @@ export class Orchestrator {
     this.config = deps.config;
     this.workspace = deps.workspace;
     this.paths = deps.paths;
+    this.previewServer = deps.previewServer;
   }
 
   /** Insert a queued run for `nodeId`, kick off async execution. */
@@ -159,36 +164,102 @@ export class Orchestrator {
     node: Node,
     signal: AbortSignal
   ): Promise<void> {
-    // Coding phase.
+    let sessionId: string | null = node.sessionId ?? null;
+    const checks = this.config.postCoderChecks;
+    const maxAttempts = Math.max(1, this.config.checkMaxRetries);
+
+    // Coding phase wraps the coder.run + post-coder check loop. Each
+    // additional attempt resumes the same session with the failing check's
+    // output as a follow-up message.
     await this.runPhase(runId, nodeId, 'coding', signal, async () => {
-      // Critique ancestors have no branch — walk up to the nearest coder.
       const branchParentId = this.resolveBranchParentId(node.parentId);
       const workdir = await this.workspace.ensureNodeWorkspace({
         nodeId,
         branchParentId,
       });
 
-      const result = await this.config.coder.run(
-        {
-          instruction: node.instruction,
-          priorSessionId: node.sessionId ?? null,
-        },
-        {
-          nodeId,
-          runId,
+      let followUp: string | undefined;
+      let attempt = 0;
+
+      while (true) {
+        attempt += 1;
+        if (signal.aborted) throw makeAbortError('coding');
+
+        const result = await this.config.coder.run(
+          {
+            instruction: node.instruction,
+            priorSessionId: sessionId,
+            ...(followUp ? { followUp } : {}),
+          },
+          {
+            nodeId,
+            runId,
+            workdir,
+            outputDir: workdir,
+            abortSignal: signal,
+            logger: makeLogger('coder'),
+            emit: (event) => this.eventBus.publish(runId, event),
+            ...(this.previewServer
+              ? { previewServerBase: this.previewServer.baseUrl }
+              : {}),
+          }
+        );
+
+        if (result.sessionId) sessionId = result.sessionId;
+
+        if (checks.length === 0) break;
+
+        const checkResult = await runChecks({
+          checks,
           workdir,
-          outputDir: workdir,
+          projectDir: this.paths.projectDir,
+          artifactsDir: this.paths.artifactsDir,
+          runId,
+          nodeId,
           abortSignal: signal,
-          logger: makeLogger('coder'),
-          emit: (event) => this.eventBus.publish(runId, event),
+        });
+
+        if (checkResult.ok) {
+          for (const c of checks) {
+            this.eventBus.publish(runId, {
+              kind: 'check_attempt',
+              attempt,
+              check: c.name,
+              ok: true,
+            });
+          }
+          break;
         }
-      );
+
+        this.eventBus.publish(runId, {
+          kind: 'check_attempt',
+          attempt,
+          check: checkResult.failedCheck,
+          ok: false,
+          output: checkResult.output,
+        });
+
+        if (attempt >= maxAttempts) {
+          throw attachValidation(
+            new Error(
+              `post-coder check '${checkResult.failedCheck}' failed after ${attempt} attempt(s)`
+            ),
+            {
+              check: checkResult.failedCheck,
+              attempts: attempt,
+              output: checkResult.output,
+            }
+          );
+        }
+
+        followUp = formatFollowUp(checkResult);
+      }
 
       // Persist sessionId so the next run on this node can resume.
-      if (result.sessionId && result.sessionId !== node.sessionId) {
+      if (sessionId && sessionId !== node.sessionId) {
         this.db
           .update(schema.nodes)
-          .set({ sessionId: result.sessionId, updatedAt: Date.now() })
+          .set({ sessionId, updatedAt: Date.now() })
           .where(eq(schema.nodes.id, nodeId))
           .run();
       }
@@ -229,6 +300,9 @@ export class Orchestrator {
           abortSignal: signal,
           logger: makeLogger('renderer'),
           emit: (event) => this.eventBus.publish(runId, event),
+          ...(this.previewServer
+            ? { previewServerBase: this.previewServer.baseUrl }
+            : {}),
         }
       );
 
@@ -242,6 +316,13 @@ export class Orchestrator {
           result.thumbnailPath,
           mimeFromPath(result.thumbnailPath)
         );
+      }
+      if (result.previewUrl) {
+        this.db
+          .update(schema.runs)
+          .set({ previewUrl: result.previewUrl, updatedAt: Date.now() })
+          .where(eq(schema.runs.id, runId))
+          .run();
       }
     });
 
@@ -521,8 +602,20 @@ interface PhaseTagged {
   __gaidoPhase?: RunPhase;
 }
 
+interface ValidationTagged {
+  __gaidoValidation?: NonNullable<RunError['validation']>;
+}
+
 function attachPhase<E extends Error>(err: E, phase: RunPhase): E {
   (err as E & PhaseTagged).__gaidoPhase = phase;
+  return err;
+}
+
+function attachValidation<E extends Error>(
+  err: E,
+  v: NonNullable<RunError['validation']>
+): E {
+  (err as E & ValidationTagged).__gaidoValidation = v;
   return err;
 }
 
@@ -535,11 +628,14 @@ function makeAbortError(phase: RunPhase): Error {
 
 function toRunError(err: unknown): RunError {
   if (err instanceof Error) {
-    const tagged = err as Error & PhaseTagged;
+    const tagged = err as Error & PhaseTagged & ValidationTagged;
     return {
       phase: tagged.__gaidoPhase ?? 'startup',
       message: err.message,
       ...(err.stack ? { stack: err.stack } : {}),
+      ...(tagged.__gaidoValidation
+        ? { validation: tagged.__gaidoValidation }
+        : {}),
     };
   }
   return { phase: 'startup', message: String(err) };

@@ -5,8 +5,14 @@ export type {
   ClaudeCodeCriticOpts,
   ClaudeCodePermissionMode,
 } from '@gaido/adapter-claude-code';
-export { playwrightRenderer } from '@gaido/adapter-playwright-renderer';
-export type { PlaywrightRendererOpts } from '@gaido/adapter-playwright-renderer';
+export {
+  playwrightRenderer,
+  playwrightRecordRenderer,
+} from '@gaido/adapter-playwright-renderer';
+export type {
+  PlaywrightRendererOpts,
+  PlaywrightRecordRendererOpts,
+} from '@gaido/adapter-playwright-renderer';
 export { geminiCritic } from '@gaido/adapter-openrouter';
 export type { GeminiCriticOpts } from '@gaido/adapter-openrouter';
 export type {
@@ -25,4 +31,6 @@ export type {
   EventPayload,
   NodeStatus,
   RunStatus,
+  PreviewServerConfig,
+  PostCoderCheck,
 } from '@gaido/core';

@@ -26,6 +26,16 @@ export interface RunError {
   phase: RunPhase | 'startup';
   message: string;
   stack?: string;
+  /**
+   * Set when the run failed because post-coder validation checks exhausted
+   * their retry budget. Lets the UI render which check failed and the last
+   * captured output, distinct from a generic exception.
+   */
+  validation?: {
+    check: string;
+    attempts: number;
+    output: string;
+  };
 }
 
 export interface AdapterConfigSnapshot {

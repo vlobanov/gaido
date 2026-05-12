@@ -16,6 +16,12 @@ export interface RunContext {
   abortSignal: AbortSignal;
   logger: Logger;
   emit(event: EventPayload): void;
+  /**
+   * Base URL of the project's preview dev server (e.g. 'http://127.0.0.1:3004'),
+   * if one is configured and running. Renderers can use this to drive Playwright
+   * against the project's existing harness; previews link humans into it.
+   */
+  previewServerBase?: string;
 }
 
 export interface CoderInput {
@@ -25,6 +31,14 @@ export interface CoderInput {
    * resume (e.g., Claude Code) should continue the session; others ignore.
    */
   priorSessionId?: string | null;
+  /**
+   * Within-run validation feedback. When set, the orchestrator is asking the
+   * coder to fix issues found by a post-coder check: send this string as the
+   * next message in the resumed session instead of re-prompting with the
+   * original `instruction`. Adapters that lack session-resume should treat
+   * this as the new prompt.
+   */
+  followUp?: string;
 }
 
 export interface CoderResult {
@@ -61,6 +75,12 @@ export interface RenderResult {
   thumbnailPath: string | null;
   /** Actual render wall-clock duration in milliseconds. */
   durationMs: number;
+  /**
+   * URL where a human can open the live, parameter-driven preview of this
+   * run. Typically built off the preview dev server's base URL with a
+   * per-run path/query. Persisted on the run for the web UI to surface.
+   */
+  previewUrl?: string | null;
 }
 
 export interface Renderer {

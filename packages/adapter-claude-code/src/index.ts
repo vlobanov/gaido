@@ -51,9 +51,14 @@ async function runCoder(
   input: CoderInput,
   ctx: RunContext
 ): Promise<CoderResult> {
+  // `followUp` is the next message in a resumed session. When set, it
+  // replaces `instruction` as the prompt — the orchestrator uses it after
+  // a post-coder check failure. claude-code's --resume picks up the prior
+  // session's context, so the original instruction is already in scope.
+  const prompt = input.followUp ?? input.instruction;
   const args = [
     '-p',
-    input.instruction,
+    prompt,
     '--output-format',
     'stream-json',
     '--verbose',
@@ -68,7 +73,7 @@ async function runCoder(
   args.push(...cfg.extraArgs);
 
   ctx.logger.info(
-    `[claude-code] spawn ${cfg.bin} model=${cfg.model} resume=${input.priorSessionId ?? 'none'} cwd=${ctx.workdir}`
+    `[claude-code] spawn ${cfg.bin} model=${cfg.model} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
   );
 
   return new Promise<CoderResult>((resolve, reject) => {

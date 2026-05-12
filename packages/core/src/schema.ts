@@ -46,6 +46,7 @@ export const runs = sqliteTable(
     codeArtifactId: text('code_artifact_id'),
     videoArtifactId: text('video_artifact_id'),
     thumbnailArtifactId: text('thumbnail_artifact_id'),
+    previewUrl: text('preview_url'),
     commitSha: text('commit_sha'),
     critique: text('critique', { mode: 'json' }).$type<Critique>(),
     costUsd: real('cost_usd'),

@@ -35,7 +35,8 @@ export function stubCoder(): Coder {
         prior +
         `\n## run ${ctx.runId}\n` +
         `at: ${new Date().toISOString()}\n` +
-        `instruction: ${input.instruction}\n`;
+        `instruction: ${input.instruction}\n` +
+        (input.followUp ? `follow-up: ${input.followUp}\n` : '');
       fs.writeFileSync(stubPath, next.trimStart() + '\n');
 
       return { sessionId: null };

@@ -143,6 +143,7 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           <OutputPanel
             videoArtifactId={currentRun?.videoArtifactId ?? null}
             thumbnailArtifactId={currentRun?.thumbnailArtifactId ?? null}
+            previewUrl={currentRun?.previewUrl ?? null}
           />
         </Section>
 
@@ -409,41 +410,54 @@ function FavoriteToggle({
 function OutputPanel({
   videoArtifactId,
   thumbnailArtifactId,
+  previewUrl,
 }: {
   videoArtifactId: string | null;
   thumbnailArtifactId: string | null;
+  previewUrl: string | null;
 }) {
-  if (videoArtifactId) {
-    return (
-      <video
-        data-testid="output-video"
-        className="aspect-square w-full border border-hairline bg-paper-deep"
-        src={`${httpUrl}/artifacts/${videoArtifactId}`}
-        poster={
-          thumbnailArtifactId
-            ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
-            : undefined
-        }
-        controls
-        loop
-        muted
-        playsInline
-      />
-    );
-  }
-  if (thumbnailArtifactId) {
-    return (
-      <img
-        data-testid="output-thumbnail"
-        className="aspect-square w-full border border-hairline bg-paper-deep object-contain"
-        src={`${httpUrl}/artifacts/${thumbnailArtifactId}`}
-        alt="Render thumbnail"
-      />
-    );
-  }
-  return (
+  const media = videoArtifactId ? (
+    <video
+      data-testid="output-video"
+      className="aspect-square w-full border border-hairline bg-paper-deep"
+      src={`${httpUrl}/artifacts/${videoArtifactId}`}
+      poster={
+        thumbnailArtifactId
+          ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
+          : undefined
+      }
+      controls
+      loop
+      muted
+      playsInline
+    />
+  ) : thumbnailArtifactId ? (
+    <img
+      data-testid="output-thumbnail"
+      className="aspect-square w-full border border-hairline bg-paper-deep object-contain"
+      src={`${httpUrl}/artifacts/${thumbnailArtifactId}`}
+      alt="Render thumbnail"
+    />
+  ) : (
     <div className="flex aspect-square w-full items-center justify-center bg-hatch font-mono text-xs uppercase tracking-caps text-ink-faint">
       No render yet
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-3">
+      {media}
+      {previewUrl ? (
+        <a
+          href={previewUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          data-testid="output-preview-link"
+          className="font-mono text-xs uppercase tracking-caps text-ink-soft underline decoration-hairline-deep underline-offset-4 hover:text-ink"
+        >
+          Open live preview →
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -500,11 +514,18 @@ function RunDetails({
           className="mt-3 border border-sanguine bg-sanguine-tint p-3 font-mono text-xs leading-relaxed text-sanguine-deep"
         >
           <div className="uppercase tracking-caps text-sanguine">
-            {run.error.phase} failed
+            {run.error.validation
+              ? `check '${run.error.validation.check}' failed`
+              : `${run.error.phase} failed`}
           </div>
           <div className="mt-1 normal-case tracking-normal text-ink-soft">
             {run.error.message}
           </div>
+          {run.error.validation ? (
+            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border border-sanguine/40 bg-paper p-2 text-[11px] leading-relaxed text-ink-soft">
+              {run.error.validation.output}
+            </pre>
+          ) : null}
         </div>
       ) : null}
     </Section>

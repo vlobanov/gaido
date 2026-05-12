@@ -133,6 +133,18 @@ function EventLine({ payload }: { payload: EventPayload }) {
           frame {payload.frame}/{payload.totalFrames}
         </div>
       );
+    case 'check_attempt':
+      return (
+        <div
+          data-testid="event-row"
+          data-event-kind={payload.kind}
+          className={payload.ok ? 'text-ink' : 'text-sanguine'}
+        >
+          <span className="text-ink-muted">·</span> check {payload.check}{' '}
+          <span className="text-ink-faint">(attempt {payload.attempt})</span>{' '}
+          {payload.ok ? 'passed' : 'failed'}
+        </div>
+      );
     case 'log': {
       const tone =
         payload.level === 'error'

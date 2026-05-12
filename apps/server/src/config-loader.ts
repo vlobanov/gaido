@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
 import { defaults } from '@gaido/core';
-import type { GaidoConfig } from '@gaido/core';
+import type { GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@gaido/core';
 
 export interface ResolvedConfig {
   name?: string;
@@ -9,6 +9,9 @@ export interface ResolvedConfig {
   coder: GaidoConfig['coder'];
   critic: GaidoConfig['critic'];
   renderer: GaidoConfig['renderer'];
+  previewServer: PreviewServerConfig | null;
+  postCoderChecks: PostCoderCheck[];
+  checkMaxRetries: number;
   concurrency: { agents: number; renderers: number };
   render: { width: number; height: number; fps: number; duration: number };
   server: { port: number; openBrowser: boolean };
@@ -42,6 +45,9 @@ export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {
     coder: cfg.coder,
     critic: cfg.critic,
     renderer: cfg.renderer,
+    previewServer: cfg.previewServer ?? null,
+    postCoderChecks: cfg.postCoderChecks ?? [],
+    checkMaxRetries: cfg.checkMaxRetries ?? defaults.checkMaxRetries,
     concurrency: {
       agents: cfg.concurrency?.agents ?? defaults.concurrency.agents,
       renderers: cfg.concurrency?.renderers ?? defaults.concurrency.renderers,

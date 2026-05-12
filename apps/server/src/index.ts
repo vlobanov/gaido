@@ -7,6 +7,10 @@ import { Orchestrator } from './orchestrator.js';
 import { recoverInterrupted } from './recovery.js';
 import { createServer } from './server.js';
 import { createWorkspaceManager } from './workspace.js';
+import {
+  startPreviewServer,
+  type PreviewServerHandle,
+} from './preview-server.js';
 import type { Context } from './context.js';
 
 export interface StartServerOptions {
@@ -49,12 +53,36 @@ export async function startServer(
     runsDir: paths.runsDir,
     skeletonDir: paths.skeletonDir,
   });
+
+  let previewServer: PreviewServerHandle | null = null;
+  if (config.previewServer) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[gaido] starting preview server: ${config.previewServer.command.join(' ')} (port ${config.previewServer.port})`
+    );
+    previewServer = await startPreviewServer({
+      config: config.previewServer,
+      defaultCwd: paths.projectDir,
+      projectDir: paths.projectDir,
+      outDir: paths.artifactsDir,
+      onLog: (level, line) => {
+        // eslint-disable-next-line no-console
+        const c = console;
+        if (level === 'error') c.error(`[preview] ${line}`);
+        else c.log(`[preview] ${line}`);
+      },
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[gaido] preview server ready at ${previewServer.baseUrl}`);
+  }
+
   const orchestrator = new Orchestrator({
     db,
     eventBus,
     config,
     workspace,
     paths,
+    previewServer,
   });
 
   const context: Context = {
@@ -64,6 +92,7 @@ export async function startServer(
     paths,
     config,
     workspace,
+    previewServer,
   };
 
   const port = options.port ?? config.server.port;
@@ -77,6 +106,9 @@ export async function startServer(
   const close = async () => {
     orchestrator.shutdown();
     await fastify.close();
+    if (previewServer) {
+      await previewServer.stop();
+    }
     sqlite.close();
   };
 

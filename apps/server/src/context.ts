@@ -4,6 +4,7 @@ import type { Orchestrator } from './orchestrator.js';
 import type { Paths } from './paths.js';
 import type { ResolvedConfig } from './config-loader.js';
 import type { WorkspaceManager } from './workspace.js';
+import type { PreviewServerHandle } from './preview-server.js';
 
 export interface Context {
   db: Db;
@@ -12,6 +13,8 @@ export interface Context {
   paths: Paths;
   config: ResolvedConfig;
   workspace: WorkspaceManager;
+  /** Running preview dev server, if one is configured. Null otherwise. */
+  previewServer: PreviewServerHandle | null;
 }
 
 export interface ContextDeps extends Context {}

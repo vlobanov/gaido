@@ -6,6 +6,7 @@ export type EventKind =
   | 'agent_token'
   | 'tool_call'
   | 'render_progress'
+  | 'check_attempt'
   | 'log'
   | 'error';
 
@@ -15,6 +16,14 @@ export type EventPayload =
   | { kind: 'agent_token'; phase: RunPhase; text: string }
   | { kind: 'tool_call'; phase: RunPhase; tool: string; argsPreview?: string }
   | { kind: 'render_progress'; frame: number; totalFrames: number }
+  | {
+      kind: 'check_attempt';
+      attempt: number;
+      check: string;
+      ok: boolean;
+      /** Tail of stdout+stderr, capped server-side. Only on ok=false. */
+      output?: string;
+    }
   | { kind: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
   | { kind: 'error'; phase?: RunPhase; message: string };
 
