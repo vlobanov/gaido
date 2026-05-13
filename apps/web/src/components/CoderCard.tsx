@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { NodeStatus } from '@gaido/core';
+import type { EventPayload, NodeStatus, PersistedEvent } from '@gaido/core';
 import {
   StatusBadge,
   activePhase,
@@ -60,6 +60,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         status={d.status}
         thumbnailArtifactId={d.thumbnailArtifactId}
         videoArtifactId={d.videoArtifactId}
+        currentRunId={d.currentRunId}
       />
 
       <div className="border-t border-hairline px-4 pb-3 pt-3">
@@ -105,13 +106,16 @@ function Frame({
   status,
   thumbnailArtifactId,
   videoArtifactId,
+  currentRunId,
 }: {
   status: NodeStatus;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  currentRunId: string | null;
 }) {
   const failed = FAILED_LIKE.has(status);
   const done = status === 'done';
+  const running = isActiveStatus(status);
   const posterId = thumbnailArtifactId ?? videoArtifactId;
 
   if (done && posterId) {
@@ -127,6 +131,10 @@ function Frame({
     );
   }
 
+  if (running && currentRunId && !posterId) {
+    return <LiveFrame runId={currentRunId} />;
+  }
+
   return (
     <div
       className="relative aspect-square w-full bg-hatch"
@@ -139,6 +147,178 @@ function Frame({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Ambient teletype rendering of the run's live event stream. Lives inside the
+ * coder frame while running and no thumbnail exists yet. Not for reading —
+ * the sidebar carries the full readable log. Treat as atmospheric.
+ *
+ * - Content is bottom-anchored and the parent clips the overflowing top; no
+ *   real scrolling. New lines emerge from below; older lines drift up into
+ *   the void.
+ * - A linear mask fades the top ~35% into the hatched paper, so text feels
+ *   like it's surfacing from nothing.
+ * - mix-blend-mode: multiply lets ink soak into the hatch instead of sitting
+ *   on top of it.
+ * - agent_token events flow inline (consecutive tokens form a paragraph),
+ *   matching the sidebar EventStream's behavior. Everything else is a block.
+ */
+const LIVE_BUFFER_MAX = 80;
+
+type LiveItem =
+  | { id: number; kind: 'inline'; text: string }
+  | { id: number; kind: 'block'; payload: EventPayload };
+
+const PHASE_MARK: Record<'coding' | 'rendering' | 'critiquing', string> = {
+  coding: 'CODING',
+  rendering: 'RENDERING',
+  critiquing: 'CRITIQUING',
+};
+
+function LiveFrame({ runId }: { runId: string }) {
+  const [items, setItems] = useState<LiveItem[]>([]);
+  const counterRef = useRef(0);
+
+  useEffect(() => {
+    setItems([]);
+    counterRef.current = 0;
+  }, [runId]);
+
+  trpc.events.subscribe.useSubscription(
+    { runId },
+    {
+      onData: (event: PersistedEvent) => {
+        const payload = event.payload;
+        // token_usage already drives the live counter in the sidebar.
+        if (payload.kind === 'token_usage') return;
+
+        setItems((prev) => {
+          let next: LiveItem[];
+          if (payload.kind === 'agent_token') {
+            const last = prev[prev.length - 1];
+            // Coalesce consecutive agent_tokens into one inline run so they
+            // flow as a paragraph rather than fragmenting word boundaries.
+            if (last && last.kind === 'inline') {
+              next = prev.slice(0, -1).concat({
+                ...last,
+                text: last.text + payload.text,
+              });
+            } else {
+              counterRef.current += 1;
+              next = prev.concat({
+                id: counterRef.current,
+                kind: 'inline',
+                text: payload.text,
+              });
+            }
+          } else {
+            counterRef.current += 1;
+            next = prev.concat({
+              id: counterRef.current,
+              kind: 'block',
+              payload,
+            });
+          }
+          return next.length > LIVE_BUFFER_MAX
+            ? next.slice(next.length - LIVE_BUFFER_MAX)
+            : next;
+        });
+      },
+    }
+  );
+
+  // The mask fades older content (top) into transparency so it dissolves
+  // into the hatched paper underneath. Bottom is fully visible.
+  const maskImage =
+    'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.25) 18%, rgba(0,0,0,0.85) 38%, black 60%)';
+
+  return (
+    <div
+      data-testid="node-live-frame"
+      className="relative aspect-square w-full overflow-hidden bg-hatch"
+      aria-hidden
+    >
+      <div
+        className="absolute inset-0 bottom-0 flex flex-col justify-end px-2 pb-2 font-mono text-[10px] leading-snug text-ink-soft"
+        style={{
+          maskImage,
+          WebkitMaskImage: maskImage,
+          mixBlendMode: 'multiply',
+        }}
+      >
+        <div className="whitespace-pre-wrap break-words">
+          {items.map((item) =>
+            item.kind === 'inline' ? (
+              <span key={item.id}>{item.text}</span>
+            ) : (
+              <LiveBlock key={item.id} payload={item.payload} />
+            )
+          )}
+          <span className="ml-px inline-block animate-pulse text-ink">▌</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveBlock({ payload }: { payload: EventPayload }) {
+  switch (payload.kind) {
+    case 'phase_start':
+      return (
+        <div className="tracking-caps text-ink-muted">
+          {'› '}
+          {PHASE_MARK[payload.phase]}
+        </div>
+      );
+    case 'phase_end':
+      return (
+        <div className={payload.ok ? 'tracking-caps text-ink-muted' : 'tracking-caps text-sanguine'}>
+          {'‹ '}
+          {PHASE_MARK[payload.phase]}
+        </div>
+      );
+    case 'tool_call':
+      return (
+        <div className="text-ink-muted">
+          <span className="text-ink-faint">·</span> {payload.tool}
+          {payload.argsPreview ? (
+            <span className="text-ink-faint"> {payload.argsPreview}</span>
+          ) : null}
+        </div>
+      );
+    case 'render_progress':
+      return (
+        <div className="text-ink-muted">
+          frame {payload.frame}/{payload.totalFrames}
+        </div>
+      );
+    case 'check_attempt':
+      return (
+        <div className={payload.ok ? 'text-ink-muted' : 'text-sanguine'}>
+          <span className="text-ink-faint">·</span> {payload.check}{' '}
+          {payload.ok ? 'ok' : `fail (${payload.attempt})`}
+        </div>
+      );
+    case 'log':
+      return (
+        <div
+          className={
+            payload.level === 'error'
+              ? 'text-sanguine'
+              : payload.level === 'warn'
+                ? 'text-ink-soft'
+                : 'text-ink-faint'
+          }
+        >
+          {payload.message}
+        </div>
+      );
+    case 'error':
+      return <div className="text-sanguine">! {payload.message}</div>;
+    default:
+      return null;
+  }
 }
 
 /**
