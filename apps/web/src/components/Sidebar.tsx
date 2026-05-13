@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import type { NodeKind, NodeStatus } from '@gaido/core';
+import { useEffect, useMemo, useState } from 'react';
+import type { EventPayload, NodeKind, NodeStatus } from '@gaido/core';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
@@ -50,9 +50,12 @@ export function Sidebar({ nodeId }: SidebarProps) {
   );
 }
 
+type TokenUsage = Extract<EventPayload, { kind: 'token_usage' }>;
+
 function CoderSidebar({ nodeId }: { nodeId: string }) {
   const [forkOpen, setForkOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [tokens, setTokens] = useState<TokenUsage | null>(null);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
@@ -94,6 +97,12 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
     utils.nodes.list.invalidate();
   };
 
+  // Reset live token counter whenever we switch runs.
+  const currentRunId = node?.currentRunId ?? null;
+  useEffect(() => {
+    setTokens(null);
+  }, [currentRunId]);
+
   if (!node) return null;
 
   const status = node.status as NodeStatus;
@@ -105,12 +114,15 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
     <SidebarShell onClose={() => setSelectedNodeId(null)}>
       <div className="flex flex-col gap-6 p-5">
         <div className="flex items-center justify-between">
-          <StatusBadge
-            status={status}
-            kind="coder"
-            timing={currentRun ?? null}
-            size="md"
-          />
+          <div className="flex items-center gap-3">
+            <StatusBadge
+              status={status}
+              kind="coder"
+              timing={currentRun ?? null}
+              size="md"
+            />
+            {active && tokens ? <TokenCounter tokens={tokens} /> : null}
+          </div>
           <FavoriteToggle
             isFavorite={node.isFavorite}
             onToggle={() =>
@@ -135,7 +147,11 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
 
         {active && node.currentRunId ? (
           <Section label="Live events">
-            <EventStream runId={node.currentRunId} onEvent={refreshNodeState} />
+            <EventStream
+              runId={node.currentRunId}
+              onEvent={refreshNodeState}
+              onTokenUsage={setTokens}
+            />
           </Section>
         ) : null}
 
@@ -349,6 +365,28 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
       ) : null}
     </SidebarShell>
   );
+}
+
+function TokenCounter({ tokens }: { tokens: TokenUsage }) {
+  return (
+    <span
+      data-testid="token-counter"
+      className="inline-flex items-center font-mono text-xs uppercase tracking-caps text-ink-muted"
+      title={`${tokens.inputTokens.toLocaleString()} input / ${tokens.outputTokens.toLocaleString()} output tokens`}
+    >
+      <span className="text-ink-faint">·</span>
+      <span className="ml-2 text-ink-soft">{formatTokens(tokens.inputTokens)}</span>
+      <span className="ml-1 text-ink-faint">in</span>
+      <span className="ml-2 text-ink-soft">{formatTokens(tokens.outputTokens)}</span>
+      <span className="ml-1 text-ink-faint">out</span>
+    </span>
+  );
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
 }
 
 function RulesPanel({ proposedRules }: { proposedRules: string[] }) {

@@ -11,6 +11,12 @@ interface EventStreamProps {
   runId: string;
   /** Called whenever an event arrives, so the parent can invalidate node state */
   onEvent?: () => void;
+  /**
+   * Fired with each `token_usage` event so the parent can render a live token
+   * counter outside the stream (e.g. next to the status badge). Payload values
+   * are run-cumulative, so the parent can render the latest and ignore prior.
+   */
+  onTokenUsage?: (payload: Extract<EventPayload, { kind: 'token_usage' }>) => void;
 }
 
 const PHASE_LABEL: Record<RunPhase, string> = {
@@ -19,7 +25,7 @@ const PHASE_LABEL: Record<RunPhase, string> = {
   critiquing: 'Critiquing',
 };
 
-export function EventStream({ runId, onEvent }: EventStreamProps) {
+export function EventStream({ runId, onEvent, onTokenUsage }: EventStreamProps) {
   const [items, setItems] = useState<StreamItem[]>([]);
   const counterRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -34,6 +40,13 @@ export function EventStream({ runId, onEvent }: EventStreamProps) {
     { runId },
     {
       onData: (event: PersistedEvent) => {
+        onEvent?.();
+        // token_usage drives the live counter next to the status badge — it
+        // would clutter the timeline as repeating "tokens N in / M out" rows.
+        if (event.payload.kind === 'token_usage') {
+          onTokenUsage?.(event.payload);
+          return;
+        }
         counterRef.current += 1;
         setItems((prev) => {
           const next = [
@@ -43,7 +56,6 @@ export function EventStream({ runId, onEvent }: EventStreamProps) {
           // keep stream bounded so it stays cheap to render
           return next.length > 200 ? next.slice(next.length - 200) : next;
         });
-        onEvent?.();
       },
     }
   );
@@ -123,6 +135,9 @@ function EventLine({ payload }: { payload: EventPayload }) {
           ) : null}
         </div>
       );
+    case 'token_usage':
+      // Rendered as a live counter outside the stream — see onTokenUsage above.
+      return null;
     case 'render_progress':
       return (
         <div

@@ -86,6 +86,14 @@ async function runCoder(
     let stdoutBuf = '';
     let stderrBuf = '';
     let settled = false;
+    // Claude Code emits multiple stream-json events per assistant message
+    // (one per content block) and repeats the same `usage` block on each.
+    // Track usage keyed by message id and sum across messages, so we don't
+    // multiply-count a single turn.
+    const usageByMessage = new Map<string, MessageUsage>();
+    // Overrides the per-message sum once the final `result` event arrives —
+    // its `usage` is the authoritative run total (matches what the API billed).
+    let usageOverride: MessageUsage | null = null;
 
     const onAbort = () => {
       if (settled) return;
@@ -126,8 +134,9 @@ async function runCoder(
           );
           continue;
         }
-        const captured = handleEvent(evt, ctx);
+        const captured = handleEvent(evt, ctx, usageByMessage, usageOverride);
         if (captured.sessionId) sessionId = captured.sessionId;
+        if (captured.usageOverride) usageOverride = captured.usageOverride;
       }
     });
 
@@ -175,9 +184,22 @@ async function runCoder(
 
 interface HandleResult {
   sessionId?: string;
+  usageOverride?: MessageUsage;
 }
 
-function handleEvent(evt: unknown, ctx: RunContext): HandleResult {
+interface MessageUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
+function handleEvent(
+  evt: unknown,
+  ctx: RunContext,
+  usageByMessage: Map<string, MessageUsage>,
+  usageOverride: MessageUsage | null
+): HandleResult {
   if (!evt || typeof evt !== 'object') return {};
   const obj = evt as Record<string, unknown>;
   const result: HandleResult = {};
@@ -193,7 +215,11 @@ function handleEvent(evt: unknown, ctx: RunContext): HandleResult {
     obj.message &&
     typeof obj.message === 'object'
   ) {
-    const message = obj.message as { content?: unknown };
+    const message = obj.message as {
+      id?: unknown;
+      content?: unknown;
+      usage?: unknown;
+    };
     if (Array.isArray(message.content)) {
       for (const raw of message.content) {
         if (!raw || typeof raw !== 'object') continue;
@@ -216,7 +242,88 @@ function handleEvent(evt: unknown, ctx: RunContext): HandleResult {
         }
       }
     }
+    // One assistant turn can show up as multiple stream-json events (one per
+    // content block) carrying the same `usage`. Keyed write avoids double
+    // counting. Emit the running total after each update so the UI ticks up.
+    const msgId = typeof message.id === 'string' ? message.id : null;
+    const parsed = parseUsage(message.usage);
+    if (msgId && parsed) {
+      usageByMessage.set(msgId, parsed);
+      emitUsage(ctx, sumUsage(usageByMessage, usageOverride));
+    }
+  } else if (obj.type === 'result') {
+    // Final result event carries the authoritative run total. Anchor on it so
+    // the closing emit shows the exact billed numbers.
+    const parsed = parseUsage(obj.usage);
+    if (parsed) {
+      result.usageOverride = parsed;
+      emitUsage(ctx, parsed);
+    }
   }
 
   return result;
+}
+
+function parseUsage(raw: unknown): MessageUsage | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const u = raw as Record<string, unknown>;
+  const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
+  const output = typeof u.output_tokens === 'number' ? u.output_tokens : 0;
+  const cacheCreation =
+    typeof u.cache_creation_input_tokens === 'number'
+      ? u.cache_creation_input_tokens
+      : 0;
+  const cacheRead =
+    typeof u.cache_read_input_tokens === 'number'
+      ? u.cache_read_input_tokens
+      : 0;
+  if (
+    input === 0 &&
+    output === 0 &&
+    cacheCreation === 0 &&
+    cacheRead === 0
+  ) {
+    return null;
+  }
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cacheCreationTokens: cacheCreation,
+    cacheReadTokens: cacheRead,
+  };
+}
+
+function sumUsage(
+  byMessage: Map<string, MessageUsage>,
+  override: MessageUsage | null
+): MessageUsage {
+  if (override) return override;
+  const sum: MessageUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+  };
+  for (const u of byMessage.values()) {
+    sum.inputTokens += u.inputTokens;
+    sum.outputTokens += u.outputTokens;
+    sum.cacheCreationTokens += u.cacheCreationTokens;
+    sum.cacheReadTokens += u.cacheReadTokens;
+  }
+  return sum;
+}
+
+function emitUsage(ctx: RunContext, u: MessageUsage): void {
+  ctx.emit({
+    kind: 'token_usage',
+    phase: 'coding',
+    inputTokens: u.inputTokens,
+    outputTokens: u.outputTokens,
+    ...(u.cacheCreationTokens > 0
+      ? { cacheCreationTokens: u.cacheCreationTokens }
+      : {}),
+    ...(u.cacheReadTokens > 0
+      ? { cacheReadTokens: u.cacheReadTokens }
+      : {}),
+  });
 }
