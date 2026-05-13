@@ -484,6 +484,7 @@ function HumanCritiqueEditor({
   return (
     <Section label="Critique (yours)">
       <textarea
+        autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         rows={6}

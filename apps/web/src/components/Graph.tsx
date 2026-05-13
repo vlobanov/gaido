@@ -1,19 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   Background,
   BackgroundVariant,
   Controls,
   ReactFlow,
-  applyNodeChanges,
   type Edge,
   type Node,
-  type NodeChange,
   type NodeMouseHandler,
   type NodeTypes,
-  type OnNodesChange,
 } from '@xyflow/react';
 import type { NodeKind, NodeStatus } from '@gaido/core';
-import { trpc } from '../lib/trpc';
 import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
 import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';
@@ -52,10 +48,7 @@ const nodeTypes: NodeTypes = {
 export function Graph({ nodes: serverNodes }: GraphProps) {
   const selectedNodeId = useUiStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
-  const setPosition = trpc.nodes.setPosition.useMutation();
 
-  // Local copy of node positions, kept in sync with server but allowing
-  // instant drag feedback without waiting for the round-trip.
   const flowNodes = useMemo<Node<CardData>[]>(
     () =>
       serverNodes.map((n) => ({
@@ -79,7 +72,6 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           selected: n.id === selectedNodeId,
         },
         selected: n.id === selectedNodeId,
-        draggable: true,
       })),
     [serverNodes, selectedNodeId]
   );
@@ -95,40 +87,6 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           type: 'smoothstep',
         })),
     [serverNodes]
-  );
-
-  const localNodesRef = useRef(flowNodes);
-  localNodesRef.current = flowNodes;
-
-  const debounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
-  useEffect(
-    () => () => {
-      for (const t of debounceRef.current.values()) clearTimeout(t);
-      debounceRef.current.clear();
-    },
-    []
-  );
-
-  const onNodesChange: OnNodesChange<Node<CardData>> = useCallback(
-    (changes: NodeChange<Node<CardData>>[]) => {
-      // Apply locally for snappy drag UX
-      localNodesRef.current = applyNodeChanges(changes, localNodesRef.current);
-
-      for (const change of changes) {
-        if (change.type !== 'position' || change.dragging || !change.position) continue;
-        const id = change.id;
-        const { x, y } = change.position;
-        const existing = debounceRef.current.get(id);
-        if (existing) clearTimeout(existing);
-        const t = setTimeout(() => {
-          debounceRef.current.delete(id);
-          setPosition.mutate({ nodeId: id, x, y });
-        }, 300);
-        debounceRef.current.set(id, t);
-      }
-    },
-    [setPosition]
   );
 
   const onNodeClick: NodeMouseHandler = useCallback(
@@ -148,7 +106,6 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
@@ -156,14 +113,15 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
         proOptions={{ hideAttribution: true }}
         minZoom={0.2}
         maxZoom={2}
+        nodesDraggable={false}
         nodesConnectable={false}
         deleteKeyCode={null}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={28}
-          size={1}
-          color="var(--hairline)"
+          gap={24}
+          size={1.4}
+          color="var(--hairline-deep)"
         />
         <Controls showInteractive={false} />
       </ReactFlow>

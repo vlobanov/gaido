@@ -26,6 +26,8 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
   const retryNode = trpc.nodes.retry.useMutation({
     onSuccess: () => utils.nodes.list.invalidate(),
   });
+  const systemQuery = trpc.system.info.useQuery();
+  const isHumanCritic = systemQuery.data?.criticKind === 'human';
 
   const active = isActiveStatus(d.status);
   const idle = d.status === 'idle';
@@ -69,15 +71,24 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
 
       <div className="min-h-[5rem] px-4 py-3">
         {idle ? (
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={retryNode.isPending}
-            data-testid="critique-run"
-            className="w-full border border-dashed border-hairline-deep bg-paper-deep px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper disabled:opacity-40"
-          >
-            {retryNode.isPending ? 'Starting...' : 'Run critic'}
-          </button>
+          isHumanCritic ? (
+            <p
+              data-testid="critique-empty-human"
+              className="font-serif text-sm italic text-ink-faint"
+            >
+              Click to add notes
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={retryNode.isPending}
+              data-testid="critique-run"
+              className="w-full border border-dashed border-hairline-deep bg-paper-deep px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper disabled:opacity-40"
+            >
+              {retryNode.isPending ? 'Starting...' : 'Run critic'}
+            </button>
+          )
         ) : active ? (
           <p className="font-serif text-sm italic text-ink-soft">
             Evaluating…
