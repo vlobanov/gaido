@@ -3,11 +3,40 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { schema, nodeId as newNodeId } from '@gaido/core';
-import { eq, inArray } from 'drizzle-orm';
+import type { Node } from '@gaido/core/schema';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
+import type { Db } from '../db.js';
 import { critiqueCardHeight, nextChildY } from '../layout.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
+
+/**
+ * A coder node is the "leaf" of its branch when no later-created node
+ * shares its anchor. Used to gate retry: an earlier node on a shared
+ * branch shouldn't be re-runnable, since the worktree has been advanced
+ * past it. Critique nodes don't disqualify; forks (different anchor) don't
+ * disqualify either.
+ */
+function isLeafOfBranch(db: Db, node: Node): boolean {
+  const anchorId = node.branchAnchorId ?? node.id;
+  // Continuations on the same branch always have branch_anchor_id pointing
+  // at the anchor row (never at intermediate links — see the Continue
+  // mutation). So one equality check covers anchor-and-non-anchor cases.
+  const later = db
+    .select({ id: schema.nodes.id })
+    .from(schema.nodes)
+    .where(
+      and(
+        gt(schema.nodes.createdAt, node.createdAt),
+        eq(schema.nodes.kind, 'coder'),
+        eq(schema.nodes.branchAnchorId, anchorId)
+      )
+    )
+    .limit(1)
+    .all();
+  return later.length === 0;
+}
 
 export const nodesRouter = router({
   list: publicProcedure.query(({ ctx }) => {
@@ -57,7 +86,11 @@ export const nodesRouter = router({
             .where(eq(schema.runs.id, node.currentRunId))
             .get() ?? null
         : null;
-      return { node, currentRun };
+      // `retryable` lets the UI grey out the Retry button on coder nodes
+      // that have continued descendants — cheaper than another round-trip
+      // and keeps the rule colocated with the rejection in `retry`.
+      const retryable = node.kind === 'coder' ? isLeafOfBranch(ctx.db, node) : true;
+      return { node, currentRun, retryable };
     }),
 
   createRoot: publicProcedure
@@ -180,9 +213,121 @@ export const nodesRouter = router({
           message: `node ${input.nodeId}`,
         });
       }
+      // Coder retries are only valid for the leaf of a branch: anything
+      // else would re-run an earlier iteration's instruction against the
+      // worktree's current (post-continuation) state, which is incoherent.
+      // Critique children don't count; forked descendants (different
+      // anchor) don't either. Critique nodes themselves stay retryable
+      // since they have no branch.
+      if (node.kind === 'coder' && !isLeafOfBranch(ctx.db, node)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'this coder has continued descendants on its branch — continue or fork instead of retry',
+        });
+      }
       // If a run is in flight, abort it before queuing the next one.
       ctx.orchestrator.cancel(node.id);
       return ctx.orchestrator.startRun(node.id);
+    }),
+
+  /**
+   * Continue iterating: spawn a new coder child under the critique on the
+   * SAME branch as the parent coder. The new node sets `branchAnchorId` to
+   * the parent's anchor (or to the parent itself if the parent is the
+   * branch root), so the orchestrator reuses the anchor's worktree and
+   * Claude Code session. The instruction is just the artist's notes — the
+   * session already has the prior conversation in scope, so no composed
+   * prompt is needed.
+   */
+  continue: publicProcedure
+    .input(z.object({ critiqueNodeId: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const critique = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.critiqueNodeId))
+        .get();
+      if (!critique) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `node ${input.critiqueNodeId}`,
+        });
+      }
+      if (critique.kind !== 'critique') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'continue requires a critique node',
+        });
+      }
+      if (!critique.parentId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'critique node has no parent coder',
+        });
+      }
+      if (!critique.currentRunId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'save notes before continuing',
+        });
+      }
+      const critiqueRun = ctx.db
+        .select()
+        .from(schema.runs)
+        .where(eq(schema.runs.id, critique.currentRunId))
+        .get();
+      const notes = critiqueRun?.critique?.overall?.trim();
+      if (!notes) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'save notes before continuing',
+        });
+      }
+      const parentCoder = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, critique.parentId))
+        .get();
+      if (!parentCoder) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `parent coder ${critique.parentId}`,
+        });
+      }
+      const anchorId = parentCoder.branchAnchorId ?? parentCoder.id;
+
+      const id = newNodeId();
+      const now = Date.now();
+      const y = nextChildY(
+        critique.positionY,
+        critiqueCardHeight(critiqueRun?.critique)
+      );
+
+      ctx.db
+        .insert(schema.nodes)
+        .values({
+          id,
+          parentId: critique.id,
+          kind: 'coder',
+          positionX: critique.positionX,
+          positionY: y,
+          instruction: notes,
+          branchAnchorId: anchorId,
+          status: 'idle',
+          isFavorite: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      const run = ctx.orchestrator.startRun(id);
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, id))
+        .get()!;
+      return { node, run };
     }),
 
   cancel: publicProcedure
@@ -258,8 +403,23 @@ export const nodesRouter = router({
       // Cancel any in-flight runs we're about to delete.
       for (const id of toDelete) ctx.orchestrator.cancel(id);
 
-      // Remove worktrees + branches. Children-first so parent branch can drop.
-      for (const id of [...toDelete].reverse()) {
+      // Only anchors own a worktree+branch. Continued nodes share their
+      // anchor's directory, so their delete doesn't touch the filesystem.
+      const anchorIds = ctx.db
+        .select({ id: schema.nodes.id })
+        .from(schema.nodes)
+        .where(inArray(schema.nodes.id, toDelete))
+        .all()
+        .filter((n) => {
+          const row = ctx.db
+            .select({ branchAnchorId: schema.nodes.branchAnchorId })
+            .from(schema.nodes)
+            .where(eq(schema.nodes.id, n.id))
+            .get();
+          return row?.branchAnchorId == null;
+        })
+        .map((n) => n.id);
+      for (const id of [...anchorIds].reverse()) {
         await ctx.workspace.removeNodeWorkspace(id);
       }
 

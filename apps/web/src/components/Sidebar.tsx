@@ -107,8 +107,12 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
 
   const status = node.status as NodeStatus;
   const active = isActiveStatus(status);
-  const canRetry = RETRYABLE.has(status);
+  const retryable = nodeQuery.data?.retryable ?? true;
+  const canRetry = RETRYABLE.has(status) && retryable;
   const canFork = !!critiqueChild;
+  const retryTooltip = retryable
+    ? undefined
+    : 'This branch has continued past this iteration — continue from a later critique or fork instead';
 
   return (
     <SidebarShell onClose={() => setSelectedNodeId(null)}>
@@ -179,6 +183,7 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             disabled={!canRetry || retryNode.isPending}
             onClick={() => retryNode.mutate({ nodeId })}
             data-testid="sidebar-retry"
+            title={retryTooltip}
             className="border border-hairline bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
           >
             Retry
@@ -227,17 +232,28 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
 
 function CritiqueSidebar({ nodeId }: { nodeId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [forkOpen, setForkOpen] = useState(false);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
   const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
+  const systemQuery = trpc.system.info.useQuery();
   const node = nodeQuery.data?.node;
   const currentRun = nodeQuery.data?.currentRun;
+  const isHumanCritic = systemQuery.data?.criticKind === 'human';
 
   const retryNode = trpc.nodes.retry.useMutation({
     onSuccess: () => {
       utils.nodes.get.invalidate({ nodeId });
       utils.nodes.list.invalidate();
+    },
+  });
+  const continueNode = trpc.nodes.continue.useMutation({
+    onSuccess: (data) => {
+      utils.nodes.get.invalidate({ nodeId });
+      utils.nodes.list.invalidate();
+      // Jump to the new coder child so the artist sees its run kick off.
+      setSelectedNodeId(data.node.id);
     },
   });
   const deleteNode = trpc.nodes.delete.useMutation({
@@ -284,7 +300,12 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           )}
         </Section>
 
-        {currentRun?.critique ? (
+        {isHumanCritic ? (
+          <HumanCritiqueEditor
+            nodeId={nodeId}
+            initial={currentRun?.critique?.overall ?? ''}
+          />
+        ) : currentRun?.critique ? (
           <Section label="Critique">
             <div
               data-testid="critique-panel"
@@ -328,15 +349,43 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+          {isHumanCritic ? (
+            <button
+              type="button"
+              disabled={
+                !currentRun?.critique?.overall?.trim() || continueNode.isPending
+              }
+              onClick={() => continueNode.mutate({ critiqueNodeId: nodeId })}
+              data-testid="sidebar-continue"
+              title={
+                currentRun?.critique?.overall?.trim()
+                  ? undefined
+                  : 'Save notes first'
+              }
+              className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+            >
+              {continueNode.isPending ? 'Continuing…' : 'Continue'}
+            </button>
+          ) : null}
           <button
             type="button"
-            disabled={!canTrigger || retryNode.isPending}
-            onClick={() => retryNode.mutate({ nodeId })}
-            data-testid="sidebar-retry"
-            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+            onClick={() => setForkOpen(true)}
+            data-testid="sidebar-fork"
+            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
           >
-            {retryNode.isPending ? 'Starting...' : runLabel}
+            Fork
           </button>
+          {isHumanCritic ? null : (
+            <button
+              type="button"
+              disabled={!canTrigger || retryNode.isPending}
+              onClick={() => retryNode.mutate({ nodeId })}
+              data-testid="sidebar-retry"
+              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+            >
+              {retryNode.isPending ? 'Starting...' : runLabel}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
@@ -347,10 +396,28 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           </button>
         </div>
 
+        {continueNode.error ? (
+          <p className="font-mono text-xs text-sanguine">
+            {continueNode.error.message}
+          </p>
+        ) : null}
+
         {retryNode.error ? (
           <p className="font-mono text-xs text-sanguine">{retryNode.error.message}</p>
         ) : null}
       </div>
+
+      {forkOpen ? (
+        <ForkModal
+          parentId={nodeId}
+          onClose={() => setForkOpen(false)}
+          onCreated={(newId) => {
+            setForkOpen(false);
+            utils.nodes.list.invalidate();
+            setSelectedNodeId(newId);
+          }}
+        />
+      ) : null}
 
       {confirmDelete ? (
         <ConfirmDialog
@@ -387,6 +454,64 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
   return `${Math.round(n / 1000)}k`;
+}
+
+function HumanCritiqueEditor({
+  nodeId,
+  initial,
+}: {
+  nodeId: string;
+  initial: string;
+}) {
+  const utils = trpc.useUtils();
+  const [draft, setDraft] = useState(initial);
+  // Re-sync if a different node is selected or the persisted value changes
+  // (e.g. another tab saved it). Without this, the textarea would stick to
+  // whatever the user last typed for the previously-selected node.
+  useEffect(() => {
+    setDraft(initial);
+  }, [nodeId, initial]);
+
+  const save = trpc.runs.setHumanCritique.useMutation({
+    onSuccess: () => {
+      utils.nodes.get.invalidate({ nodeId });
+      utils.nodes.list.invalidate();
+    },
+  });
+
+  const dirty = draft !== initial;
+
+  return (
+    <Section label="Critique (yours)">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={6}
+        placeholder="What worked, what didn't, what to try next…"
+        data-testid="human-critique-textarea"
+        className="w-full resize-y border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+      />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={!dirty || save.isPending}
+          onClick={() => save.mutate({ nodeId, notes: draft })}
+          data-testid="human-critique-save"
+          className="border border-hairline-deep bg-paper px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+        >
+          {save.isPending ? 'Saving…' : 'Save notes'}
+        </button>
+        {!dirty && initial ? (
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-faint">
+            saved
+          </span>
+        ) : null}
+        {save.error ? (
+          <span className="font-mono text-xs text-sanguine">{save.error.message}</span>
+        ) : null}
+      </div>
+    </Section>
+  );
 }
 
 function RulesPanel({ proposedRules }: { proposedRules: string[] }) {

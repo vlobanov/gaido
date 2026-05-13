@@ -37,4 +37,10 @@ export const runsRouter = router({
         .orderBy(desc(schema.runs.createdAt))
         .all();
     }),
+
+  setHumanCritique: publicProcedure
+    .input(z.object({ nodeId: z.string(), notes: z.string() }))
+    .mutation(({ ctx, input }) => {
+      return ctx.orchestrator.saveHumanCritique(input.nodeId, input.notes);
+    }),
 });

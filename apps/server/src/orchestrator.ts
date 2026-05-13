@@ -24,6 +24,7 @@ import type { WorkspaceManager } from './workspace.js';
 import type { Paths } from './paths.js';
 import type { PreviewServerHandle } from './preview-server.js';
 import { runChecks, formatFollowUp } from './checks.js';
+import { snapshotClaudeSession } from './session-snapshot.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
 
 interface OrchestratorDeps {
@@ -105,6 +106,90 @@ export class Orchestrator {
     return run;
   }
 
+  /**
+   * Persist a human-written critique on a critique node. Used by the
+   * notes panel in the sidebar — bypasses the critic adapter entirely.
+   *
+   * - If the node has no run yet, inserts one synchronously in `done`
+   *   state with the notes as the critique's `overall` text.
+   * - If a run exists, updates its critique JSON in place (re-editable).
+   *
+   * Either way the node + run land in `status='done'`. Empty notes clear
+   * the stored critique back to null and leave the node `idle` so the
+   * panel goes back to its empty state.
+   */
+  saveHumanCritique(nodeId: string, notes: string): Run {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) throw new Error(`node ${nodeId} not found`);
+    if (node.kind !== 'critique') {
+      throw new Error('human critique can only be saved on critique nodes');
+    }
+    const trimmed = notes.trim();
+    const critique: Critique | null = trimmed
+      ? {
+          overall: trimmed,
+          strengths: [],
+          weaknesses: [],
+          suggestions: [],
+        }
+      : null;
+    const now = Date.now();
+    const targetStatus: RunStatus = critique ? 'done' : 'idle';
+
+    let runId = node.currentRunId;
+    if (runId) {
+      this.db
+        .update(schema.runs)
+        .set({
+          status: targetStatus,
+          critique,
+          critiquingStartedAt: critique ? now : null,
+          critiquingFinishedAt: critique ? now : null,
+          updatedAt: now,
+        })
+        .where(eq(schema.runs.id, runId))
+        .run();
+    } else {
+      runId = newRunId();
+      const snapshot: AdapterConfigSnapshot = {
+        coder: { kind: this.config.coder.kind },
+        critic: { kind: this.config.critic.kind },
+        renderer: { kind: this.config.renderer.kind },
+      };
+      this.db
+        .insert(schema.runs)
+        .values({
+          id: runId,
+          nodeId,
+          status: targetStatus,
+          configSnapshot: snapshot,
+          critique,
+          critiquingStartedAt: critique ? now : null,
+          critiquingFinishedAt: critique ? now : null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    this.db
+      .update(schema.nodes)
+      .set({ status: targetStatus, currentRunId: runId, updatedAt: now })
+      .where(eq(schema.nodes.id, nodeId))
+      .run();
+
+    const run = this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, runId))
+      .get();
+    if (!run) throw new Error(`run ${runId} not found after save`);
+    return run;
+  }
+
   /** Cancel an in-flight run. Idempotent. */
   cancel(nodeId: string): void {
     const node = this.db
@@ -164,7 +249,19 @@ export class Orchestrator {
     node: Node,
     signal: AbortSignal
   ): Promise<void> {
-    let sessionId: string | null = node.sessionId ?? null;
+    // Anchor row owns the worktree + branch + session for a chain of
+    // continued nodes. Forked/root nodes are their own anchor.
+    const anchorId = node.branchAnchorId ?? node.id;
+    const anchor =
+      anchorId === node.id
+        ? node
+        : (this.db
+            .select()
+            .from(schema.nodes)
+            .where(eq(schema.nodes.id, anchorId))
+            .get() ?? node);
+
+    let sessionId: string | null = anchor.sessionId ?? null;
     const checks = this.config.postCoderChecks;
     const maxAttempts = Math.max(1, this.config.checkMaxRetries);
 
@@ -172,10 +269,22 @@ export class Orchestrator {
     // additional attempt resumes the same session with the failing check's
     // output as a follow-up message.
     await this.runPhase(runId, nodeId, 'coding', signal, async () => {
-      const branchParentId = this.resolveBranchParentId(node.parentId);
+      // basisCommit is only consulted on the anchor's first worktree
+      // creation; for non-anchor nodes the worktree already exists, so the
+      // value is ignored. Walk up to the nearest coder ancestor and use its
+      // currentRun.commitSha so forks land at that specific iteration's
+      // state rather than the (possibly advanced) branch tip.
+      const ancestorCoder = this.resolveAncestorCoder(anchor.parentId);
+      const basisCommit = ancestorCoder?.currentRunId
+        ? this.db
+            .select({ commitSha: schema.runs.commitSha })
+            .from(schema.runs)
+            .where(eq(schema.runs.id, ancestorCoder.currentRunId))
+            .get()?.commitSha ?? undefined
+        : undefined;
       const workdir = await this.workspace.ensureNodeWorkspace({
-        nodeId,
-        branchParentId,
+        nodeId: anchorId,
+        ...(basisCommit ? { basisCommit } : {}),
       });
 
       // Compute the rules-prefixed instruction once, outside the retry loop.
@@ -263,19 +372,21 @@ export class Orchestrator {
         followUp = formatFollowUp(checkResult);
       }
 
-      // Persist sessionId so the next run on this node can resume.
-      if (sessionId && sessionId !== node.sessionId) {
+      // Persist sessionId on the anchor — the branch's conversation lives
+      // there, and continued nodes read it via the anchor on their next run.
+      if (sessionId && sessionId !== anchor.sessionId) {
         this.db
           .update(schema.nodes)
           .set({ sessionId, updatedAt: Date.now() })
-          .where(eq(schema.nodes.id, nodeId))
+          .where(eq(schema.nodes.id, anchorId))
           .run();
       }
     });
 
-    // Commit whatever the coder produced. No-op if no diff.
+    // Commit on the anchor's branch (anchor owns the worktree). The
+    // resulting sha is recorded on the current run row regardless.
     const sha = await this.workspace.commitRun({
-      nodeId,
+      nodeId: anchorId,
       runId,
       message: `run ${runId}`,
     });
@@ -287,9 +398,19 @@ export class Orchestrator {
         .run();
     }
 
+    // Snapshot the Claude session as it stood at the end of this run.
+    // Write-only: no consumer yet, but having the data already on disk
+    // means fork-with-session-history can land later as a read-only change.
+    snapshotClaudeSession({
+      workdir: this.workspace.workspacePath(anchorId),
+      sessionId,
+      runId,
+      runsDir: this.paths.runsDir,
+    });
+
     // Rendering phase.
     await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
-      const workdir = this.workspace.workspacePath(nodeId);
+      const workdir = this.workspace.workspacePath(anchorId);
       const outputDir = path.join(this.paths.artifactsDir, runId);
       fs.mkdirSync(outputDir, { recursive: true });
 
@@ -394,17 +515,19 @@ export class Orchestrator {
           emit: (event) => this.eventBus.publish(runId, event),
         }
       );
-      critique = result.critique;
+      critique = result.critique ?? null;
     });
 
     this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
   }
 
   /**
-   * Walk up the parent chain until we find a coder-kind node — that's the
-   * one whose branch we should fork from. Critique nodes have no branch.
+   * Walk up the parent chain until we find a coder-kind node. Used to
+   * locate the iteration whose commit a new branch should root at. Returns
+   * the full node so callers can read `currentRunId` / `branchAnchorId` /
+   * `instruction` without a second lookup. Critique nodes are skipped.
    */
-  private resolveBranchParentId(startParentId: string | null): string | undefined {
+  private resolveAncestorCoder(startParentId: string | null): Node | null {
     let cursor: string | null = startParentId;
     while (cursor) {
       const p = this.db
@@ -412,11 +535,11 @@ export class Orchestrator {
         .from(schema.nodes)
         .where(eq(schema.nodes.id, cursor))
         .get();
-      if (!p) return undefined;
-      if (p.kind === 'coder') return p.id;
+      if (!p) return null;
+      if (p.kind === 'coder') return p;
       cursor = p.parentId;
     }
-    return undefined;
+    return null;
   }
 
   /**

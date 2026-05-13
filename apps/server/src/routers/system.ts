@@ -8,6 +8,7 @@ export const systemRouter = router({
     return {
       previewServerBase: ctx.previewServer?.baseUrl ?? null,
       projectName: ctx.config.name ?? null,
+      criticKind: ctx.config.critic.kind,
     };
   }),
 });

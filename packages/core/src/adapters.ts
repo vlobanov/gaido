@@ -100,7 +100,13 @@ export interface CriticInput {
 }
 
 export interface CriticResult {
-  critique: Critique;
+  /**
+   * Optional. Omit to mark the critique node `done` without storing a
+   * Critique JSON — used by `humanCritic()` and other adapters that defer
+   * evaluation to the artist. The rules panel and Fork flow stay usable
+   * either way; only the auto-generated critique panel needs a value.
+   */
+  critique?: Critique;
   costUsd?: number;
   tokensIn?: number;
   tokensOut?: number;

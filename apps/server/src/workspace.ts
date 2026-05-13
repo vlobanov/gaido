@@ -14,11 +14,13 @@ export interface CommitRunArgs {
 export interface EnsureNodeArgs {
   nodeId: string;
   /**
-   * Branch this node's worktree off `node/<branchParentId>`'s tip. Must point
-   * at the nearest coder-kind ancestor (critique nodes have no branch). If
-   * omitted, branches off `main`.
+   * Commit SHA (or any ref) to root this node's branch at. Used only on
+   * first creation of the worktree — subsequent calls return the existing
+   * path. Pass the ancestor coder's `runs.commitSha` so forks land off the
+   * specific iteration the user chose, not the latest tip of that coder's
+   * shared branch. Omit to root off `main` (used by root nodes).
    */
-  branchParentId?: string;
+  basisCommit?: string;
 }
 
 export interface WorkspaceManager {
@@ -126,7 +128,7 @@ export function createWorkspaceManager(
     if (await branchExists(branch)) {
       await git('worktree', 'add', wt, branch);
     } else {
-      const from = args.branchParentId ? branchOf(args.branchParentId) : 'main';
+      const from = args.basisCommit ?? 'main';
       await git('worktree', 'add', '-b', branch, wt, from);
     }
     return wt;

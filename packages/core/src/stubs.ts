@@ -83,6 +83,24 @@ export function stubCritic(): Critic {
   };
 }
 
+/**
+ * Human-critic mode. Returns no critique data — the artist watches the
+ * render themselves, then either (a) feeds rules into LESSONS.md via the
+ * sidebar's "Add a rule…" form, or (b) forks the critique node with manual
+ * feedback in the new coder's prompt. Clicking "Run critic" on a node
+ * configured this way just marks it `done` so the status reflects that the
+ * artist has reviewed it; the auto-generated critique panel stays hidden
+ * because no Critique JSON is stored.
+ */
+export function humanCritic(): Critic {
+  return {
+    kind: 'human',
+    async critique() {
+      return {};
+    },
+  };
+}
+
 export function stubRenderer(): Renderer {
   return {
     kind: 'stub',

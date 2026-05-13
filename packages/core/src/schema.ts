@@ -15,6 +15,14 @@ export const nodes = sqliteTable(
     status: text('status').$type<NodeStatus>().notNull().default('idle'),
     currentRunId: text('current_run_id'),
     sessionId: text('session_id'),
+    /**
+     * Branch lineage. NULL = this node owns its own branch (worktree at
+     * `runs/<id>/`, git branch `node/<id>`). Set = this node is a linked
+     * continuation; its worktree, branch, and Claude Code session live on
+     * the anchor row instead. Anchors always point at the branch root, not
+     * intermediate links — collapse via `node.branchAnchorId ?? node.id`.
+     */
+    branchAnchorId: text('branch_anchor_id'),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -23,6 +31,7 @@ export const nodes = sqliteTable(
     parentIdx: index('nodes_parent_idx').on(table.parentId),
     statusIdx: index('nodes_status_idx').on(table.status),
     kindIdx: index('nodes_kind_idx').on(table.kind),
+    branchAnchorIdx: index('nodes_branch_anchor_idx').on(table.branchAnchorId),
     // One critique child per parent. Prevents double auto-spawn.
     critiqueChildIdx: uniqueIndex('nodes_critique_per_parent_idx')
       .on(table.parentId)
