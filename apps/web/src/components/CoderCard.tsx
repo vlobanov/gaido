@@ -120,14 +120,10 @@ function Frame({
 
   if (done && posterId) {
     return (
-      <div className="relative aspect-square w-full overflow-hidden">
-        <img
-          src={`${httpUrl}/artifacts/${posterId}`}
-          alt=""
-          className="h-full w-full object-cover"
-          draggable={false}
-        />
-      </div>
+      <DoneFrame
+        thumbnailArtifactId={thumbnailArtifactId}
+        videoArtifactId={videoArtifactId}
+      />
     );
   }
 
@@ -144,6 +140,80 @@ function Frame({
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-mono text-2xl text-sanguine">×</span>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DoneFrame({
+  thumbnailArtifactId,
+  videoArtifactId,
+}: {
+  thumbnailArtifactId: string | null;
+  videoArtifactId: string | null;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+
+  const thumbUrl = thumbnailArtifactId
+    ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
+    : null;
+  const videoUrl = videoArtifactId
+    ? `${httpUrl}/artifacts/${videoArtifactId}`
+    : null;
+
+  if (!videoUrl) {
+    return (
+      <div className="relative aspect-square w-full overflow-hidden">
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="node-done-frame"
+      className="relative aspect-square w-full overflow-hidden"
+      onMouseEnter={() => {
+        ref.current?.play().catch(() => {});
+      }}
+      onMouseLeave={() => {
+        const v = ref.current;
+        if (!v) return;
+        v.pause();
+        v.currentTime = 0;
+      }}
+    >
+      <video
+        ref={ref}
+        src={videoUrl}
+        muted
+        loop
+        playsInline
+        preload={thumbUrl ? 'none' : 'metadata'}
+        onPlaying={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      {thumbUrl ? (
+        <img
+          src={thumbUrl}
+          alt=""
+          draggable={false}
+          // Keep the thumbnail on top until the video is actually playing —
+          // bridges the load delay on first hover so we don't flash a black
+          // frame between mouseenter and the video catching up.
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-150 ${
+            playing ? 'opacity-0' : 'opacity-100'
+          }`}
+        />
       ) : null}
     </div>
   );
