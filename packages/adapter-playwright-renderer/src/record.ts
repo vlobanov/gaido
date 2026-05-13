@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { chromium, type Browser } from 'playwright';
 import type {
   RenderInput,
@@ -42,6 +43,10 @@ export interface PlaywrightRecordRendererOpts {
    * The renderer always launches headless.
    */
   launchArgs?: string[];
+  /** Path to the ffmpeg binary used to extract the thumbnail. Default 'ffmpeg'. */
+  ffmpegBin?: string;
+  /** Path to the ffprobe binary used to read the video duration. Default 'ffprobe'. */
+  ffprobeBin?: string;
 }
 
 interface ResolvedRecordConfig {
@@ -50,6 +55,8 @@ interface ResolvedRecordConfig {
   recordOpts: { fps: number; bitrate: number; fileName: string };
   timeoutMs: number;
   launchArgs: string[];
+  ffmpegBin: string;
+  ffprobeBin: string;
 }
 
 /**
@@ -78,6 +85,8 @@ export function playwrightRecordRenderer(
     },
     timeoutMs: opts.timeoutMs ?? 600_000,
     launchArgs: opts.launchArgs ?? [],
+    ffmpegBin: opts.ffmpegBin ?? 'ffmpeg',
+    ffprobeBin: opts.ffprobeBin ?? 'ffprobe',
   };
   return {
     kind: 'playwright-record',
@@ -172,12 +181,16 @@ async function doRender(
     const videoPath = path.join(ctx.outputDir, recordOpts.fileName);
     await download.saveAs(videoPath);
 
-    // Thumbnail: the page just finished recording, so the player is
-    // typically parked on the last frame. A screenshot at this point gives a
-    // reasonable poster. If projects want a specific frame, they can scrub
-    // before recording in their __recordMp4 implementation.
+    // Thumbnail: pull the middle frame out of the freshly-saved mp4 with
+    // ffmpeg. Same pixels as the video, same resolution, same aspect — no
+    // chance of a poster/player mismatch from a separately-captured screenshot.
     const thumbnailPath = path.join(ctx.outputDir, 'thumbnail.png');
-    await page.screenshot({ path: thumbnailPath, type: 'png' });
+    await extractMiddleFrame({
+      videoPath,
+      outPath: thumbnailPath,
+      ffmpegBin: cfg.ffmpegBin,
+      ffprobeBin: cfg.ffprobeBin,
+    });
 
     return {
       videoPath,
@@ -195,4 +208,104 @@ function makeAbortError(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
   return err;
+}
+
+async function extractMiddleFrame(args: {
+  videoPath: string;
+  outPath: string;
+  ffmpegBin: string;
+  ffprobeBin: string;
+}): Promise<void> {
+  const durationSec = await probeDuration(args.ffprobeBin, args.videoPath);
+  // Seek before -i for fast keyframe seek; mp4 keyframes are sparse but a
+  // ~1s offset error on a thumbnail is invisible and cheaper than decode-seek.
+  const middle = Math.max(0, durationSec / 2);
+  await runFfmpeg(args.ffmpegBin, [
+    '-y',
+    '-ss',
+    middle.toFixed(3),
+    '-i',
+    args.videoPath,
+    '-frames:v',
+    '1',
+    '-update',
+    '1',
+    args.outPath,
+  ]);
+}
+
+function probeDuration(bin: string, videoPath: string): Promise<number> {
+  const args = [
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'csv=p=0',
+    videoPath,
+  ];
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (b: Buffer) => {
+      stdout += b.toString('utf8');
+    });
+    child.stderr.on('data', (b: Buffer) => {
+      stderr += b.toString('utf8');
+    });
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') {
+        reject(
+          new Error(
+            `ffprobe not found at '${bin}'. Install ffmpeg (it ships ffprobe) or set { ffprobeBin } on playwrightRecordRenderer().`
+          )
+        );
+      } else {
+        reject(err);
+      }
+    });
+    child.on('close', (code) => {
+      if (code !== 0) {
+        const tail = stderr.slice(-800).trim();
+        reject(new Error(`ffprobe exited ${code}${tail ? `: ${tail}` : ''}`));
+        return;
+      }
+      const dur = parseFloat(stdout.trim());
+      if (!Number.isFinite(dur) || dur <= 0) {
+        reject(new Error(`ffprobe returned non-numeric duration: ${stdout.trim()}`));
+        return;
+      }
+      resolve(dur);
+    });
+  });
+}
+
+function runFfmpeg(bin: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (b: Buffer) => {
+      stderr += b.toString('utf8');
+    });
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') {
+        reject(
+          new Error(
+            `ffmpeg not found at '${bin}'. Install ffmpeg or set { ffmpegBin } on playwrightRecordRenderer().`
+          )
+        );
+      } else {
+        reject(err);
+      }
+    });
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const tail = stderr.slice(-800).trim();
+        reject(new Error(`ffmpeg exited ${code}${tail ? `: ${tail}` : ''}`));
+      }
+    });
+  });
 }
