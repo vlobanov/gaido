@@ -7,7 +7,7 @@ import type { Node } from '@gaido/core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
 import type { Db } from '../db.js';
-import { critiqueCardHeight, nextChildY } from '../layout.js';
+import { critiqueCardHeight, nextChildY, SIBLING_X_STEP } from '../layout.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
 
@@ -170,7 +170,23 @@ export const nodesRouter = router({
             .where(eq(schema.runs.id, parent.currentRunId))
             .get() ?? null
         : null;
-      const x = input.position?.x ?? parent.positionX;
+      // Spread sibling forks horizontally so the second fork from a critique
+      // doesn't stack invisibly behind the first. New sibling lands one
+      // card-width + gap to the right of the rightmost existing coder child.
+      const existingChildren = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(
+          and(
+            eq(schema.nodes.parentId, parent.id),
+            eq(schema.nodes.kind, 'coder')
+          )
+        )
+        .all();
+      const rightmost = existingChildren.length
+        ? Math.max(...existingChildren.map((c) => c.positionX))
+        : parent.positionX - SIBLING_X_STEP;
+      const x = input.position?.x ?? rightmost + SIBLING_X_STEP;
       const y =
         input.position?.y ??
         nextChildY(parent.positionY, critiqueCardHeight(parentRun?.critique));
@@ -303,6 +319,21 @@ export const nodesRouter = router({
         critique.positionY,
         critiqueCardHeight(critiqueRun?.critique)
       );
+      // Spread alongside any prior siblings (forks or other continues) so a
+      // second iteration from one critique doesn't land on top of the first.
+      const existingChildren = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(
+          and(
+            eq(schema.nodes.parentId, critique.id),
+            eq(schema.nodes.kind, 'coder')
+          )
+        )
+        .all();
+      const rightmost = existingChildren.length
+        ? Math.max(...existingChildren.map((c) => c.positionX))
+        : critique.positionX - SIBLING_X_STEP;
 
       ctx.db
         .insert(schema.nodes)
@@ -310,7 +341,7 @@ export const nodesRouter = router({
           id,
           parentId: critique.id,
           kind: 'coder',
-          positionX: critique.positionX,
+          positionX: rightmost + SIBLING_X_STEP,
           positionY: y,
           instruction: notes,
           branchAnchorId: anchorId,

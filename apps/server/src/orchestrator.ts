@@ -546,19 +546,32 @@ export class Orchestrator {
    * After a coder run lands `done`, ensure a critique child exists. The
    * partial unique index `(parent_id) WHERE kind='critique'` makes the
    * insert a no-op on retry of an already-done coder.
+   *
+   * Re-loads the coder row to pick up any drag that happened while the
+   * run was in flight — the `Node` we received as a parameter was captured
+   * at the start of the run, so it has stale position data if the user
+   * moved the card. Without this, multiple coder siblings under one
+   * critique would auto-spawn their critique children on top of each
+   * other at the original (default) X, looking like they share a critique.
    */
   private autoSpawnCritiqueChild(coder: Node): void {
+    const fresh =
+      this.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, coder.id))
+        .get() ?? coder;
     const id = newNodeId();
     const now = Date.now();
     this.db
       .insert(schema.nodes)
       .values({
         id,
-        parentId: coder.id,
+        parentId: fresh.id,
         kind: 'critique',
-        positionX: coder.positionX,
-        positionY: nextChildY(coder.positionY, CODER_CARD_HEIGHT),
-        instruction: coder.instruction,
+        positionX: fresh.positionX,
+        positionY: nextChildY(fresh.positionY, CODER_CARD_HEIGHT),
+        instruction: fresh.instruction,
         status: 'idle',
         isFavorite: false,
         createdAt: now,

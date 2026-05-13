@@ -37,3 +37,9 @@ export function critiqueCardHeight(critique: Critique | null | undefined): numbe
 export function nextChildY(parentY: number, parentHeight: number): number {
   return parentY + parentHeight + GAP;
 }
+
+// Coder card width (w-64) — used to spread sibling forks horizontally so a
+// second/third fork from the same critique doesn't stack on top of the
+// first. Mirrors apps/web/src/components/CoderCard.tsx.
+export const CODER_CARD_WIDTH = 256;
+export const SIBLING_X_STEP = CODER_CARD_WIDTH + GAP;
