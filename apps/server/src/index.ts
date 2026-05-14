@@ -8,6 +8,7 @@ import { Orchestrator } from './orchestrator.js';
 import { recoverInterrupted } from './recovery.js';
 import { createServer } from './server.js';
 import { createWorkspaceManager } from './workspace.js';
+import { resolveSkeleton } from './skeletons.js';
 import {
   startPreviewServer,
   type PreviewServerHandle,
@@ -54,7 +55,7 @@ export async function startServer(
   const eventBus = new EventBus(db, { logsDir: paths.logsDir });
   const workspace = createWorkspaceManager({
     runsDir: paths.runsDir,
-    skeletonDir: paths.skeletonDir,
+    resolveSkeleton: (name) => resolveSkeleton(name, { projectDir: paths.projectDir }),
   });
 
   let previewServer: PreviewServerHandle | null = null;

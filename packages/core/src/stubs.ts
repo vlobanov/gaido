@@ -72,7 +72,7 @@ export function stubCritic(): Critic {
           weaknesses: ['No real evaluation happened — this is canned output'],
           suggestions: [
             'Wire up @gaido/adapter-claude-code or another Critic implementation',
-            'Iterate on the skeleton/CLAUDE.md to guide the coder',
+            'Iterate on the chosen skeleton\'s CLAUDE.md to guide the coder',
           ],
           proposedRules: [
             'Stub rules: replace this critic with a real adapter to get useful proposals.',

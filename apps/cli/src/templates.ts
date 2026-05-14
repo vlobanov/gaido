@@ -195,8 +195,13 @@ the file self-contained. You may add additional \`.js\`/\`.css\` files in
 this directory if it helps modularity.
 `;
 
+/**
+ * Each entry becomes a folder under `<projectDir>/skeletons/<name>/` at init.
+ * The `default` entry is the seed for new roots when the user hasn't picked
+ * one explicitly — keep it general-purpose.
+ */
 export const skeletonCatalog: Record<string, SkeletonTemplate> = {
-  pixi: {
+  default: {
     description: 'Pixi.js v8 via CDN — procedural / canvas / WebGL animations.',
     files: { 'index.html': pixiIndexHtml, 'CLAUDE.md': pixiClaudeMd },
   },
@@ -205,5 +210,3 @@ export const skeletonCatalog: Record<string, SkeletonTemplate> = {
     files: { 'index.html': cssIndexHtml, 'CLAUDE.md': cssClaudeMd },
   },
 };
-
-export const DEFAULT_SKELETON = 'pixi';

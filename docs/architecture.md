@@ -28,7 +28,7 @@ For UI iteration: `pnpm --filter @gaido/web dev` in another terminal with `VITE_
 Other useful commands:
 
 - `pnpm -r typecheck` — runs `tsc --noEmit` across all packages
-- `pnpm exec gaido init` (in an empty dir) — scaffolds `gaido.config.ts`, `skeleton/`, `.gitignore`, `.env.example`
+- `pnpm exec gaido init` (in an empty dir) — scaffolds `gaido.config.ts`, `skeletons/<name>/` (one folder per built-in preset), `.gitignore`, `.env.example`
 - `lsof -ti :4288 | xargs -r kill` — stop a stuck server
 
 ## Stack pinning

@@ -21,10 +21,13 @@ npx gaido
 ```
 gaido.config.ts    # adapter config (coder, critic, renderer)
 gaido.db           # SQLite, runtime state
-skeleton/          # starting workspace template (CLAUDE.md, index.html, ...)
+skeletons/         # named starter presets (skeletons/<name>/{CLAUDE.md, index.html, ...})
 runs/              # per-run agent workspaces and artifacts
 .env               # API keys (Gemini, etc.)
 ```
+
+Each root coder picks a skeleton at creation time. Project presets in
+`./skeletons/<name>/` shadow global presets in `~/.gaido/skeletons/<name>/`.
 
 ## Repo layout (this monorepo)
 

@@ -7,7 +7,8 @@ export interface Paths {
   runsDir: string;
   artifactsDir: string;
   logsDir: string;
-  skeletonDir: string;
+  /** Project-local skeleton presets. Folders inside are named skeletons. */
+  projectSkeletonsDir: string;
   lessonsFile: string;
   migrationsDir: string;
 }
@@ -32,7 +33,7 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     // raw subprocess stdout/stderr from adapters. Sibling to artifacts so
     // both ride under runs/'s gitignore.
     logsDir: path.join(runsDir, '.logs'),
-    skeletonDir: path.join(projectDir, 'skeleton'),
+    projectSkeletonsDir: path.join(projectDir, 'skeletons'),
     // Project-wide rules promoted from critiques (or added manually by the
     // artist). Read by the orchestrator and prepended to coder instructions
     // on fresh sessions. File is created lazily on first promotion.

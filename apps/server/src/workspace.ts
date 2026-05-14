@@ -20,9 +20,16 @@ export interface EnsureNodeArgs {
    * first creation of the worktree — subsequent calls return the existing
    * path. Pass the ancestor coder's `runs.commitSha` so forks land off the
    * specific iteration the user chose, not the latest tip of that coder's
-   * shared branch. Omit to root off `main` (used by root nodes).
+   * shared branch. Omit for root nodes — `seedSkeleton` is consulted then.
    */
   basisCommit?: string;
+  /**
+   * Skeleton preset to seed the worktree from when this is a root node
+   * (i.e., no `basisCommit`). Resolves to a branch `seed/<name>` in the
+   * bare store, lazy-created the first time the name is used. Defaults to
+   * `'default'`. Ignored when `basisCommit` is set.
+   */
+  seedSkeleton?: string;
 }
 
 export interface WorkspacePathArgs {
@@ -40,12 +47,13 @@ export interface WorkspaceManager {
   workspacePath(args: WorkspacePathArgs): string;
   /** True iff the bare git store at runs/.git is initialized. */
   isInitialized(): boolean;
-  /** Initialize the bare store; seed `main` from skeleton. Idempotent. */
+  /** Initialize the bare store (empty — seed branches are created lazily). */
   initStore(): Promise<void>;
   /**
    * Create a worktree for `nodeId` if missing. Branch `node/<nodeId>` is cut
-   * from `node/<branchParentId>`'s tip if given, otherwise from `main`.
-   * Returns the worktree path. Idempotent.
+   * from `node/<branchParentId>`'s tip if given, otherwise from the seed
+   * branch for `seedSkeleton` (defaulting to `'default'`). Returns the
+   * worktree path. Idempotent.
    */
   ensureNodeWorkspace(args: EnsureNodeArgs): Promise<string>;
   /**
@@ -59,7 +67,12 @@ export interface WorkspaceManager {
 
 export interface CreateWorkspaceManagerOpts {
   runsDir: string;
-  skeletonDir: string;
+  /**
+   * Resolves a skeleton name to an absolute directory whose contents are
+   * copied into the seed branch. Returns null when the name isn't found —
+   * the seed branch is still created, just empty.
+   */
+  resolveSkeleton: (name: string) => string | null;
 }
 
 const GIT_IDENT_ENV = {
@@ -72,9 +85,10 @@ const GIT_IDENT_ENV = {
 export function createWorkspaceManager(
   opts: CreateWorkspaceManagerOpts
 ): WorkspaceManager {
-  const { runsDir, skeletonDir } = opts;
+  const { runsDir, resolveSkeleton } = opts;
   const gitDir = path.join(runsDir, '.git');
   const branchOf = (nodeId: string) => `node/${nodeId}`;
+  const seedBranchOf = (name: string) => `seed/${name}`;
   const env = () => ({ ...process.env, ...GIT_IDENT_ENV });
 
   // Run git against the bare store directly (no worktree context).
@@ -89,30 +103,8 @@ export function createWorkspaceManager(
 
   const initStore = async (): Promise<void> => {
     if (isInitialized()) return;
-
     fs.mkdirSync(runsDir, { recursive: true });
-    const bootstrap = path.join(runsDir, '.bootstrap');
-    if (fs.existsSync(bootstrap)) {
-      fs.rmSync(bootstrap, { recursive: true, force: true });
-    }
-    fs.mkdirSync(bootstrap, { recursive: true });
-
-    // git ≥ 2.28 supports `init -b <branch>`. Avoids "master" default.
-    await exec('git', ['init', '-b', 'main', bootstrap], { env: env() });
-
-    if (fs.existsSync(skeletonDir)) {
-      copyDirContents(skeletonDir, bootstrap);
-    }
-
-    await exec('git', ['-C', bootstrap, 'add', '-A'], { env: env() });
-    await exec(
-      'git',
-      ['-C', bootstrap, 'commit', '--allow-empty', '-m', 'seed: skeleton'],
-      { env: env() }
-    );
-
-    await exec('git', ['clone', '--bare', bootstrap, gitDir], { env: env() });
-    fs.rmSync(bootstrap, { recursive: true, force: true });
+    await exec('git', ['init', '--bare', gitDir], { env: env() });
   };
 
   const branchExists = async (name: string): Promise<boolean> => {
@@ -122,6 +114,42 @@ export function createWorkspaceManager(
     } catch {
       return false;
     }
+  };
+
+  /**
+   * Lazy-create a seed branch for `name` in the bare store. Bootstraps a
+   * temp working repo, copies the skeleton's contents (if resolved), makes a
+   * single seed commit, pushes the branch into the bare repo, cleans up.
+   */
+  const ensureSeedBranch = async (name: string): Promise<string> => {
+    await initStore();
+    const branch = seedBranchOf(name);
+    if (await branchExists(branch)) return branch;
+
+    const source = resolveSkeleton(name);
+    const bootstrap = path.join(runsDir, '.bootstrap');
+    if (fs.existsSync(bootstrap)) {
+      fs.rmSync(bootstrap, { recursive: true, force: true });
+    }
+    fs.mkdirSync(bootstrap, { recursive: true });
+
+    await exec('git', ['init', '-b', branch, bootstrap], { env: env() });
+    if (source && fs.existsSync(source)) {
+      copyDirContents(source, bootstrap);
+    }
+    await exec('git', ['-C', bootstrap, 'add', '-A'], { env: env() });
+    await exec(
+      'git',
+      ['-C', bootstrap, 'commit', '--allow-empty', '-m', `seed: ${name}`],
+      { env: env() }
+    );
+    await exec(
+      'git',
+      ['-C', bootstrap, 'push', gitDir, `${branch}:${branch}`],
+      { env: env() }
+    );
+    fs.rmSync(bootstrap, { recursive: true, force: true });
+    return branch;
   };
 
   const ensureNodeWorkspace = async (args: EnsureNodeArgs): Promise<string> => {
@@ -145,7 +173,8 @@ export function createWorkspaceManager(
     if (await branchExists(branch)) {
       await git('worktree', 'add', wt, branch);
     } else {
-      const from = args.basisCommit ?? 'main';
+      const from =
+        args.basisCommit ?? (await ensureSeedBranch(args.seedSkeleton ?? 'default'));
       await git('worktree', 'add', '-b', branch, wt, from);
     }
     return wt;

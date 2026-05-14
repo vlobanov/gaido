@@ -43,7 +43,7 @@ Names by component:
 
 | Component | Testid(s) |
 |---|---|
-| `EmptyState` | `empty-create-root`, `create-root-form`, `create-root-input`, `create-root-submit`, `create-root-cancel` |
+| `EmptyState` | `empty-create-root`, `create-root-form`, `create-root-skeleton` (only when presets are available), `create-root-input`, `create-root-submit`, `create-root-cancel` |
 | `CoderCard` / `CritiqueCard` | `node-card` (with `data-node-id`, `data-node-kind` = `coder`\|`critique`, `data-status`, `data-favorite`), `node-favorite-toggle`, `critique-run` (idle critique's "Run critic" button) |
 | `StatusBadge` | `status-badge` (with `data-status`) |
 | `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel` |

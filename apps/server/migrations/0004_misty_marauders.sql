@@ -1,0 +1,1 @@
+ALTER TABLE `nodes` ADD `skeleton_name` text;

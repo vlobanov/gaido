@@ -5,6 +5,7 @@ import { eventsRouter } from './events.js';
 import { systemRouter } from './system.js';
 import { lessonsRouter } from './lessons.js';
 import { canvasesRouter } from './canvases.js';
+import { skeletonsRouter } from './skeletons.js';
 
 export const appRouter = router({
   nodes: nodesRouter,
@@ -13,6 +14,7 @@ export const appRouter = router({
   system: systemRouter,
   lessons: lessonsRouter,
   canvases: canvasesRouter,
+  skeletons: skeletonsRouter,
 });
 
 export type AppRouter = typeof appRouter;

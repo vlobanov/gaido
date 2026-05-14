@@ -23,7 +23,10 @@ export interface GaidoDebug {
   events: PersistedEvent[];
 
   trigger: {
-    createRoot(instruction: string): Promise<unknown>;
+    createRoot(
+      instruction: string,
+      opts?: { skeletonName?: string }
+    ): Promise<unknown>;
     createCanvas(name?: string): Promise<unknown>;
     /**
      * Fork a coder node: waits for its auto-spawned critique child to exist,
@@ -175,10 +178,14 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
       events: eventsRef.current,
       critiqueChildOf: findCritiqueChild,
       trigger: {
-        async createRoot(instruction: string) {
+        async createRoot(
+          instruction: string,
+          opts?: { skeletonName?: string }
+        ) {
           const result = await createRoot.mutateAsync({
             instruction,
             canvasId: canvasIdRef.current,
+            ...(opts?.skeletonName ? { skeletonName: opts.skeletonName } : {}),
           });
           await utils.nodes.list.invalidate();
           return result;

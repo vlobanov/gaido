@@ -38,6 +38,13 @@ export const nodes = sqliteTable(
      * intermediate links — collapse via `node.branchAnchorId ?? node.id`.
      */
     branchAnchorId: text('branch_anchor_id'),
+    /**
+     * Skeleton preset name. Only meaningful on root coders — names a folder
+     * under `<projectDir>/skeletons/` or `~/.gaido/skeletons/` that seeds the
+     * worktree. NULL → `'default'`. Forks inherit via branch lineage and
+     * leave this NULL.
+     */
+    skeletonName: text('skeleton_name'),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),

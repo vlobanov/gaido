@@ -104,6 +104,7 @@ export const nodesRouter = router({
         instruction: z.string().min(1),
         position: positionSchema,
         canvasId: z.string().optional(),
+        skeletonName: z.string().optional(),
       })
     )
     .mutation(({ ctx, input }) => {
@@ -135,6 +136,7 @@ export const nodesRouter = router({
           positionY: input.position?.y ?? 0,
           instruction: input.instruction,
           status: 'idle',
+          skeletonName: input.skeletonName ?? null,
           isFavorite: false,
           createdAt: now,
           updatedAt: now,

@@ -42,6 +42,6 @@ UI mirrors the same normalize so the [Promote] button shows `✓ in rules` when 
 
 ## Where rules don't live
 
-- Not in `skeleton/`. The skeleton seeds the bare git store on first init and never again; LESSONS.md needs to evolve across sessions.
+- Not in `skeletons/`. A skeleton seeds the bare git store the first time it's used (one `seed/<name>` branch per skeleton) and isn't re-read after; LESSONS.md needs to evolve across sessions.
 - Not in per-node git history. Rules are project-level, not branch-level. They're injected at runtime, not committed into any coder's worktree.
-- Not in `gaido.db`. The file is the source of truth — the artist can `vim LESSONS.md`, `git diff` it, share it as a regular project artifact alongside `skeleton/CLAUDE.md`.
+- Not in `gaido.db`. The file is the source of truth — the artist can `vim LESSONS.md`, `git diff` it, share it as a regular project artifact alongside `skeletons/<name>/CLAUDE.md`.

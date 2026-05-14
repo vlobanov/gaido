@@ -49,7 +49,9 @@ interface CreateRootModalProps {
 
 export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [instruction, setInstruction] = useState('');
+  const [skeletonName, setSkeletonName] = useState<string | null>(null);
   const utils = trpc.useUtils();
+  const skeletons = trpc.skeletons.list.useQuery();
   const createRoot = trpc.nodes.createRoot.useMutation({
     onSuccess: async () => {
       await utils.nodes.list.invalidate();
@@ -57,11 +59,22 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
     },
   });
 
+  const skeletonOptions = skeletons.data ?? [];
+  const resolvedSkeleton =
+    skeletonName ??
+    skeletonOptions.find((s) => s.name === 'default')?.name ??
+    skeletonOptions[0]?.name ??
+    null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = instruction.trim();
     if (!trimmed) return;
-    createRoot.mutate({ instruction: trimmed, canvasId: canvas.id });
+    createRoot.mutate({
+      instruction: trimmed,
+      canvasId: canvas.id,
+      ...(resolvedSkeleton ? { skeletonName: resolvedSkeleton } : {}),
+    });
   };
 
   const canvasLabel = canvas.name?.trim() ? canvas.name : canvas.slug;
@@ -88,6 +101,29 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
           <span className="font-mono uppercase tracking-caps text-ink">{canvasLabel}</span>.
           To start a separate canvas, use the canvas switcher in the toolbar above.
         </p>
+        {skeletonOptions.length > 0 ? (
+          <div className="mb-4">
+            <label
+              htmlFor="create-root-skeleton"
+              className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+            >
+              Skeleton
+            </label>
+            <select
+              id="create-root-skeleton"
+              value={resolvedSkeleton ?? ''}
+              onChange={(e) => setSkeletonName(e.target.value)}
+              data-testid="create-root-skeleton"
+              className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
+            >
+              {skeletonOptions.map((s) => (
+                <option key={`${s.source}:${s.name}`} value={s.name}>
+                  {s.name} · {s.source}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
         <label
           htmlFor="create-root-input"
           className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
