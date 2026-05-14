@@ -25,22 +25,77 @@ const PHASE_LABEL: Record<RunPhase, string> = {
   critiquing: 'Critiquing',
 };
 
+const MAX_ITEMS = 200;
+
 export function EventStream({ runId, onEvent, onTokenUsage }: EventStreamProps) {
   const [items, setItems] = useState<StreamItem[]>([]);
   const counterRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Hydration coordination: subscription events that arrive before the
+  // history query resolves go into the buffer; they get merged in (deduped
+  // by id) when history lands so reload doesn't double-render the events
+  // that came back from the table.
+  const hydratedRef = useRef(false);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const bufferRef = useRef<PersistedEvent[]>([]);
 
   // Reset stream whenever the run changes
   useEffect(() => {
     setItems([]);
     counterRef.current = 0;
+    hydratedRef.current = false;
+    seenIdsRef.current = new Set();
+    bufferRef.current = [];
   }, [runId]);
+
+  // Backfill from the persisted events table so reloading mid-run keeps the
+  // timeline. Without this the stream would start empty and only show events
+  // emitted after the WS subscription connects.
+  const history = trpc.events.history.useQuery(
+    { runId },
+    { staleTime: Infinity, refetchOnWindowFocus: false }
+  );
+
+  useEffect(() => {
+    if (!history.data || hydratedRef.current) return;
+    hydratedRef.current = true;
+
+    const seenIds = seenIdsRef.current;
+    const initial: StreamItem[] = [];
+    let latestTokenUsage: Extract<EventPayload, { kind: 'token_usage' }> | null = null;
+
+    const ingest = (ev: PersistedEvent) => {
+      if (seenIds.has(ev.id)) return;
+      seenIds.add(ev.id);
+      if (ev.payload.kind === 'token_usage') {
+        latestTokenUsage = ev.payload;
+        return;
+      }
+      counterRef.current += 1;
+      initial.push({ id: counterRef.current, payload: ev.payload });
+    };
+
+    for (const ev of history.data) ingest(ev);
+    // Drain any events that arrived via subscription while history was loading.
+    for (const ev of bufferRef.current) ingest(ev);
+    bufferRef.current = [];
+
+    setItems(initial.length > MAX_ITEMS ? initial.slice(-MAX_ITEMS) : initial);
+    if (latestTokenUsage) onTokenUsage?.(latestTokenUsage);
+  }, [history.data, onTokenUsage]);
 
   trpc.events.subscribe.useSubscription(
     { runId },
     {
       onData: (event: PersistedEvent) => {
         onEvent?.();
+        if (!hydratedRef.current) {
+          // Hold until history finishes loading; dedupe-merge happens there.
+          bufferRef.current.push(event);
+          return;
+        }
+        if (seenIdsRef.current.has(event.id)) return;
+        seenIdsRef.current.add(event.id);
         // token_usage drives the live counter next to the status badge — it
         // would clutter the timeline as repeating "tokens N in / M out" rows.
         if (event.payload.kind === 'token_usage') {
@@ -54,7 +109,7 @@ export function EventStream({ runId, onEvent, onTokenUsage }: EventStreamProps) 
             { id: counterRef.current, payload: event.payload },
           ];
           // keep stream bounded so it stays cheap to render
-          return next.length > 200 ? next.slice(next.length - 200) : next;
+          return next.length > MAX_ITEMS ? next.slice(next.length - MAX_ITEMS) : next;
         });
       },
     }

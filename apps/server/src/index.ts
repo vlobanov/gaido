@@ -51,7 +51,7 @@ export async function startServer(
     );
   }
 
-  const eventBus = new EventBus(db);
+  const eventBus = new EventBus(db, { logsDir: paths.logsDir });
   const workspace = createWorkspaceManager({
     runsDir: paths.runsDir,
     skeletonDir: paths.skeletonDir,

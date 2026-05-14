@@ -65,6 +65,12 @@ async function doRender(
   const videoPath = path.join(ctx.outputDir, 'video.mp4');
   const thumbnailPath = path.join(ctx.outputDir, 'thumbnail.png');
 
+  // Per-run technical log surface for the rendering phase. Captures
+  // everything the orchestrator can't see structurally: page console
+  // chatter, page errors, ffmpeg stderr.
+  const pageLogFile = path.join(ctx.logDir, 'renderer.page.log');
+  const ffmpegLogFile = path.join(ctx.logDir, 'renderer.ffmpeg.log');
+
   const server = await startStaticServer(ctx.workdir);
   ctx.logger.info(
     `[playwright] serving ${ctx.workdir} at http://127.0.0.1:${server.port}/`
@@ -91,7 +97,13 @@ async function doRender(
     // Surface page console errors as render-progress log breadcrumbs would
     // be too noisy; let the orchestrator capture only failures.
     page.on('pageerror', (err) => {
+      appendSilent(pageLogFile, `[pageerror] ${err.message}\n`);
       ctx.logger.warn(`[playwright] page error: ${err.message}`);
+    });
+    // Capture every console line to disk — useful when a scene boots fine
+    // but renders empty or glitchy: the only hint is often a console.warn.
+    page.on('console', (msg) => {
+      appendSilent(pageLogFile, `[${msg.type()}] ${msg.text()}\n`);
     });
 
     // Install fake clock BEFORE navigation. setTimeout/rAF/Date in the page
@@ -151,6 +163,7 @@ async function doRender(
     fps: input.fps,
     padWidth: String(totalFrames).length,
     outPath: videoPath,
+    logFile: ffmpegLogFile,
   });
 
   // Frame PNGs are ~10MB+ for a 1024² × 150-frame run. Drop them after
@@ -169,6 +182,8 @@ interface EncodeOpts {
   fps: number;
   padWidth: number;
   outPath: string;
+  /** If set, ffmpeg stderr is appended here for postmortem inspection. */
+  logFile?: string;
 }
 
 function encodeWithFfmpeg(
@@ -194,6 +209,7 @@ function encodeWithFfmpeg(
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', (b: Buffer) => {
+      if (opts.logFile) appendSilent(opts.logFile, b);
       stderr += b.toString('utf8');
     });
     child.on('error', (err: NodeJS.ErrnoException) => {
@@ -299,4 +315,17 @@ function makeAbortError(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
   return err;
+}
+
+/**
+ * Best-effort sync append used by adapters to mirror subprocess output to
+ * a per-run log file. Swallows errors — SQLite holds the structured record,
+ * the file is a debugging convenience.
+ */
+function appendSilent(file: string, data: Buffer | string): void {
+  try {
+    fs.appendFileSync(file, data);
+  } catch {
+    // ignore
+  }
 }

@@ -30,6 +30,12 @@ export type EventPayload =
       outputTokens: number;
       cacheCreationTokens?: number;
       cacheReadTokens?: number;
+      /**
+       * Cumulative billed cost in USD, if the adapter has visibility into it.
+       * Claude Code emits this on the final `result` event. Optional — the UI
+       * falls back to "tokens only" when absent.
+       */
+      costUsd?: number;
     }
   | { kind: 'render_progress'; frame: number; totalFrames: number }
   | {

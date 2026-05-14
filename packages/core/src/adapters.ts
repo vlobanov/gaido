@@ -13,6 +13,13 @@ export interface RunContext {
   runId: string;
   workdir: string;
   outputDir: string;
+  /**
+   * Per-run directory for technical logs (raw subprocess stdout/stderr,
+   * adapter scratch dumps). Already exists when handed to the adapter.
+   * Useful when something goes wrong and stderr is the only hint — write
+   * verbose bytes here rather than spamming the event bus.
+   */
+  logDir: string;
   abortSignal: AbortSignal;
   logger: Logger;
   emit(event: EventPayload): void;

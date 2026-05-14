@@ -249,11 +249,78 @@ const PHASE_MARK: Record<'coding' | 'rendering' | 'critiquing', string> = {
 function LiveFrame({ runId }: { runId: string }) {
   const [items, setItems] = useState<LiveItem[]>([]);
   const counterRef = useRef(0);
+  // Hydration plumbing: subscription frames arriving before history loads
+  // are buffered, then merged in (dedupe by id) when history resolves.
+  // Without this, reloading mid-run leaves the teletype blank for as long
+  // as the coder is between turns.
+  const hydratedRef = useRef(false);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const bufferRef = useRef<PersistedEvent[]>([]);
 
   useEffect(() => {
     setItems([]);
     counterRef.current = 0;
+    hydratedRef.current = false;
+    seenIdsRef.current = new Set();
+    bufferRef.current = [];
   }, [runId]);
+
+  const appendOne = (prev: LiveItem[], payload: EventPayload): LiveItem[] => {
+    let next: LiveItem[];
+    if (payload.kind === 'agent_token') {
+      const last = prev[prev.length - 1];
+      // Coalesce consecutive agent_tokens into one inline run so they
+      // flow as a paragraph rather than fragmenting word boundaries.
+      if (last && last.kind === 'inline') {
+        next = prev.slice(0, -1).concat({
+          ...last,
+          text: last.text + payload.text,
+        });
+      } else {
+        counterRef.current += 1;
+        next = prev.concat({
+          id: counterRef.current,
+          kind: 'inline',
+          text: payload.text,
+        });
+      }
+    } else {
+      counterRef.current += 1;
+      next = prev.concat({
+        id: counterRef.current,
+        kind: 'block',
+        payload,
+      });
+    }
+    return next.length > LIVE_BUFFER_MAX
+      ? next.slice(next.length - LIVE_BUFFER_MAX)
+      : next;
+  };
+
+  const history = trpc.events.history.useQuery(
+    { runId },
+    { staleTime: Infinity, refetchOnWindowFocus: false }
+  );
+
+  useEffect(() => {
+    if (!history.data || hydratedRef.current) return;
+    hydratedRef.current = true;
+
+    const seenIds = seenIdsRef.current;
+    let acc: LiveItem[] = [];
+    const ingest = (ev: PersistedEvent) => {
+      if (seenIds.has(ev.id)) return;
+      seenIds.add(ev.id);
+      // token_usage already drives the sidebar counter — skip in the teletype.
+      if (ev.payload.kind === 'token_usage') return;
+      acc = appendOne(acc, ev.payload);
+    };
+    for (const ev of history.data) ingest(ev);
+    for (const ev of bufferRef.current) ingest(ev);
+    bufferRef.current = [];
+    setItems(acc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history.data]);
 
   trpc.events.subscribe.useSubscription(
     { runId },
@@ -262,38 +329,13 @@ function LiveFrame({ runId }: { runId: string }) {
         const payload = event.payload;
         // token_usage already drives the live counter in the sidebar.
         if (payload.kind === 'token_usage') return;
-
-        setItems((prev) => {
-          let next: LiveItem[];
-          if (payload.kind === 'agent_token') {
-            const last = prev[prev.length - 1];
-            // Coalesce consecutive agent_tokens into one inline run so they
-            // flow as a paragraph rather than fragmenting word boundaries.
-            if (last && last.kind === 'inline') {
-              next = prev.slice(0, -1).concat({
-                ...last,
-                text: last.text + payload.text,
-              });
-            } else {
-              counterRef.current += 1;
-              next = prev.concat({
-                id: counterRef.current,
-                kind: 'inline',
-                text: payload.text,
-              });
-            }
-          } else {
-            counterRef.current += 1;
-            next = prev.concat({
-              id: counterRef.current,
-              kind: 'block',
-              payload,
-            });
-          }
-          return next.length > LIVE_BUFFER_MAX
-            ? next.slice(next.length - LIVE_BUFFER_MAX)
-            : next;
-        });
+        if (!hydratedRef.current) {
+          bufferRef.current.push(event);
+          return;
+        }
+        if (seenIdsRef.current.has(event.id)) return;
+        seenIdsRef.current.add(event.id);
+        setItems((prev) => appendOne(prev, payload));
       },
     }
   );

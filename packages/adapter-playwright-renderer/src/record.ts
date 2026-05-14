@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { chromium, type Browser } from 'playwright';
@@ -110,6 +111,9 @@ async function doRender(
     base.replace(/\/$/, '') +
     cfg.urlPath({ runId: ctx.runId, nodeId: ctx.nodeId });
 
+  const pageLogFile = path.join(ctx.logDir, 'renderer.page.log');
+  const ffmpegLogFile = path.join(ctx.logDir, 'renderer.ffmpeg.log');
+
   let browser: Browser | null = null;
   const onAbort = () => {
     ctx.logger.warn('[playwright-record] aborting');
@@ -126,9 +130,11 @@ async function doRender(
     const page = await context.newPage();
 
     page.on('pageerror', (err) => {
+      appendSilent(pageLogFile, `[pageerror] ${err.message}\n`);
       ctx.logger.warn(`[playwright-record] page error: ${err.message}`);
     });
     page.on('console', (msg) => {
+      appendSilent(pageLogFile, `[${msg.type()}] ${msg.text()}\n`);
       if (msg.type() === 'error') {
         ctx.logger.warn(`[playwright-record] console error: ${msg.text()}`);
       }
@@ -190,6 +196,7 @@ async function doRender(
       outPath: thumbnailPath,
       ffmpegBin: cfg.ffmpegBin,
       ffprobeBin: cfg.ffprobeBin,
+      logFile: ffmpegLogFile,
     });
 
     return {
@@ -210,31 +217,52 @@ function makeAbortError(): Error {
   return err;
 }
 
+function appendSilent(file: string, data: Buffer | string): void {
+  try {
+    fs.appendFileSync(file, data);
+  } catch {
+    // ignore
+  }
+}
+
 async function extractMiddleFrame(args: {
   videoPath: string;
   outPath: string;
   ffmpegBin: string;
   ffprobeBin: string;
+  logFile?: string;
 }): Promise<void> {
-  const durationSec = await probeDuration(args.ffprobeBin, args.videoPath);
+  const durationSec = await probeDuration(
+    args.ffprobeBin,
+    args.videoPath,
+    args.logFile
+  );
   // Seek before -i for fast keyframe seek; mp4 keyframes are sparse but a
   // ~1s offset error on a thumbnail is invisible and cheaper than decode-seek.
   const middle = Math.max(0, durationSec / 2);
-  await runFfmpeg(args.ffmpegBin, [
-    '-y',
-    '-ss',
-    middle.toFixed(3),
-    '-i',
-    args.videoPath,
-    '-frames:v',
-    '1',
-    '-update',
-    '1',
-    args.outPath,
-  ]);
+  await runFfmpeg(
+    args.ffmpegBin,
+    [
+      '-y',
+      '-ss',
+      middle.toFixed(3),
+      '-i',
+      args.videoPath,
+      '-frames:v',
+      '1',
+      '-update',
+      '1',
+      args.outPath,
+    ],
+    args.logFile
+  );
 }
 
-function probeDuration(bin: string, videoPath: string): Promise<number> {
+function probeDuration(
+  bin: string,
+  videoPath: string,
+  logFile?: string
+): Promise<number> {
   const args = [
     '-v',
     'error',
@@ -252,6 +280,7 @@ function probeDuration(bin: string, videoPath: string): Promise<number> {
       stdout += b.toString('utf8');
     });
     child.stderr.on('data', (b: Buffer) => {
+      if (logFile) appendSilent(logFile, b);
       stderr += b.toString('utf8');
     });
     child.on('error', (err: NodeJS.ErrnoException) => {
@@ -281,11 +310,16 @@ function probeDuration(bin: string, videoPath: string): Promise<number> {
   });
 }
 
-function runFfmpeg(bin: string, args: string[]): Promise<void> {
+function runFfmpeg(
+  bin: string,
+  args: string[],
+  logFile?: string
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', (b: Buffer) => {
+      if (logFile) appendSilent(logFile, b);
       stderr += b.toString('utf8');
     });
     child.on('error', (err: NodeJS.ErrnoException) => {

@@ -6,6 +6,7 @@ export interface Paths {
   dbFile: string;
   runsDir: string;
   artifactsDir: string;
+  logsDir: string;
   skeletonDir: string;
   lessonsFile: string;
   migrationsDir: string;
@@ -27,6 +28,10 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     // worktrees (versioned source) and artifacts (binary outputs) share a
     // single .gitignore'd top-level dir.
     artifactsDir: path.join(runsDir, '.artifacts'),
+    // Per-run technical logs: events.ndjson (mirror of the event bus) plus
+    // raw subprocess stdout/stderr from adapters. Sibling to artifacts so
+    // both ride under runs/'s gitignore.
+    logsDir: path.join(runsDir, '.logs'),
     skeletonDir: path.join(projectDir, 'skeleton'),
     // Project-wide rules promoted from critiques (or added manually by the
     // artist). Read by the orchestrator and prepended to coder instructions

@@ -16,7 +16,7 @@ import type {
   RunError,
   EventPayload,
 } from '@gaido/core';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
 import type { ResolvedConfig } from './config-loader.js';
@@ -292,7 +292,9 @@ export class Orchestrator {
       const workdir = await this.workspace.ensureNodeWorkspace({
         nodeId: anchorId,
         canvasSlug,
-        ...(basisCommit ? { basisCommit } : {}),
+        ...(basisCommit
+          ? { basisCommit }
+          : { seedSkeleton: anchor.skeletonName ?? 'default' }),
       });
 
       // Compute the rules-prefixed instruction once, outside the retry loop.
@@ -321,6 +323,7 @@ export class Orchestrator {
             runId,
             workdir,
             outputDir: workdir,
+            logDir: this.ensureRunLogDir(runId),
             abortSignal: signal,
             logger: makeLogger('coder'),
             emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
@@ -435,6 +438,7 @@ export class Orchestrator {
           runId,
           workdir,
           outputDir,
+          logDir: this.ensureRunLogDir(runId),
           abortSignal: signal,
           logger: makeLogger('renderer'),
           emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
@@ -521,6 +525,7 @@ export class Orchestrator {
           runId,
           workdir: codePath,
           outputDir: path.join(this.paths.artifactsDir, canvasSlug, runId),
+          logDir: this.ensureRunLogDir(runId),
           abortSignal: signal,
           logger: makeLogger('critic'),
           emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
@@ -672,6 +677,18 @@ export class Orchestrator {
     if (extra.critique) update.critique = extra.critique;
     if (extra.error) update.error = extra.error;
 
+    // Roll up the run's final token usage from the event stream. The last
+    // `token_usage` event is authoritative (claude-code adapter overrides
+    // intermediate sums with the result event's billed totals). Captured on
+    // both success and failure — tokens billed for a partial run still need
+    // to surface in the run row.
+    const totals = this.latestTokenTotals(runId);
+    if (totals) {
+      update.tokensIn = totals.inputTokens;
+      update.tokensOut = totals.outputTokens;
+      if (typeof totals.costUsd === 'number') update.costUsd = totals.costUsd;
+    }
+
     this.db
       .update(schema.runs)
       .set(update)
@@ -685,6 +702,46 @@ export class Orchestrator {
       .set({ status, updatedAt: now })
       .where(eq(schema.nodes.id, nodeId))
       .run();
+  }
+
+  /**
+   * Per-run log directory. Created lazily on first use. Mirrors the
+   * `.artifacts/<runId>` layout but at `.logs/<runId>` — adapters write raw
+   * subprocess streams here, EventBus also drops `events.ndjson` alongside.
+   */
+  private ensureRunLogDir(runId: string): string {
+    const dir = path.join(this.paths.logsDir, runId);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /**
+   * Latest persisted `token_usage` event for this run, decoded. Returns
+   * null if the run never emitted one (e.g., stub coder, critique-only
+   * node). Used to roll up totals into the runs row at terminal status.
+   */
+  private latestTokenTotals(runId: string): {
+    inputTokens: number;
+    outputTokens: number;
+    costUsd?: number;
+  } | null {
+    const rows = this.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.runId, runId))
+      .orderBy(desc(schema.events.ts))
+      .all();
+    for (const row of rows) {
+      const p = row.payload;
+      if (p.kind === 'token_usage') {
+        return {
+          inputTokens: p.inputTokens,
+          outputTokens: p.outputTokens,
+          ...(typeof p.costUsd === 'number' ? { costUsd: p.costUsd } : {}),
+        };
+      }
+    }
+    return null;
   }
 
   private recordArtifact(

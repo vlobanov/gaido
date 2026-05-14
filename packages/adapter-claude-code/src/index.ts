@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { Coder, CoderInput, CoderResult, RunContext } from '@gaido/core';
 
@@ -94,6 +96,24 @@ async function runCoder(
     // Overrides the per-message sum once the final `result` event arrives —
     // its `usage` is the authoritative run total (matches what the API billed).
     let usageOverride: MessageUsage | null = null;
+    // Authoritative billed cost from the final `result` event. Folded into
+    // the closing `token_usage` emit so the orchestrator can persist it on
+    // the run row.
+    let costUsd: number | null = null;
+
+    // Tee raw subprocess streams to disk so postmortems don't depend on
+    // re-parsing the structured event log. Append-mode in case the run loop
+    // re-spawns claude for a check retry — each spawn extends the same file.
+    const stdoutLogPath = path.join(ctx.logDir, 'coder.stdout.log');
+    const stderrLogPath = path.join(ctx.logDir, 'coder.stderr.log');
+    const stdoutLog = fs.createWriteStream(stdoutLogPath, { flags: 'a' });
+    const stderrLog = fs.createWriteStream(stderrLogPath, { flags: 'a' });
+    stdoutLog.on('error', (err) =>
+      ctx.logger.warn(`[claude-code] stdout log write failed: ${err.message}`)
+    );
+    stderrLog.on('error', (err) =>
+      ctx.logger.warn(`[claude-code] stderr log write failed: ${err.message}`)
+    );
 
     const onAbort = () => {
       if (settled) return;
@@ -114,10 +134,13 @@ async function runCoder(
       if (settled) return;
       settled = true;
       ctx.abortSignal.removeEventListener('abort', onAbort);
+      stdoutLog.end();
+      stderrLog.end();
       fn();
     };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutLog.write(chunk);
       stdoutBuf += chunk.toString('utf8');
       // Process complete lines; leave any partial line in the buffer.
       let nl: number;
@@ -134,13 +157,15 @@ async function runCoder(
           );
           continue;
         }
-        const captured = handleEvent(evt, ctx, usageByMessage, usageOverride);
+        const captured = handleEvent(evt, ctx, usageByMessage, usageOverride, costUsd);
         if (captured.sessionId) sessionId = captured.sessionId;
         if (captured.usageOverride) usageOverride = captured.usageOverride;
+        if (typeof captured.costUsd === 'number') costUsd = captured.costUsd;
       }
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
+      stderrLog.write(chunk);
       stderrBuf += chunk.toString('utf8');
     });
 
@@ -185,6 +210,7 @@ async function runCoder(
 interface HandleResult {
   sessionId?: string;
   usageOverride?: MessageUsage;
+  costUsd?: number;
 }
 
 interface MessageUsage {
@@ -198,7 +224,8 @@ function handleEvent(
   evt: unknown,
   ctx: RunContext,
   usageByMessage: Map<string, MessageUsage>,
-  usageOverride: MessageUsage | null
+  usageOverride: MessageUsage | null,
+  costUsd: number | null
 ): HandleResult {
   if (!evt || typeof evt !== 'object') return {};
   const obj = evt as Record<string, unknown>;
@@ -249,15 +276,22 @@ function handleEvent(
     const parsed = parseUsage(message.usage);
     if (msgId && parsed) {
       usageByMessage.set(msgId, parsed);
-      emitUsage(ctx, sumUsage(usageByMessage, usageOverride));
+      emitUsage(ctx, sumUsage(usageByMessage, usageOverride), costUsd);
     }
   } else if (obj.type === 'result') {
     // Final result event carries the authoritative run total. Anchor on it so
-    // the closing emit shows the exact billed numbers.
+    // the closing emit shows the exact billed numbers. `total_cost_usd` is
+    // the dollars Anthropic billed; surface it on the closing emit so the
+    // orchestrator can persist it on the run row.
     const parsed = parseUsage(obj.usage);
+    const finalCost =
+      typeof obj.total_cost_usd === 'number' ? obj.total_cost_usd : null;
+    if (finalCost !== null) {
+      result.costUsd = finalCost;
+    }
     if (parsed) {
       result.usageOverride = parsed;
-      emitUsage(ctx, parsed);
+      emitUsage(ctx, parsed, finalCost ?? costUsd);
     }
   }
 
@@ -313,7 +347,11 @@ function sumUsage(
   return sum;
 }
 
-function emitUsage(ctx: RunContext, u: MessageUsage): void {
+function emitUsage(
+  ctx: RunContext,
+  u: MessageUsage,
+  costUsd: number | null
+): void {
   ctx.emit({
     kind: 'token_usage',
     phase: 'coding',
@@ -325,5 +363,6 @@ function emitUsage(ctx: RunContext, u: MessageUsage): void {
     ...(u.cacheReadTokens > 0
       ? { cacheReadTokens: u.cacheReadTokens }
       : {}),
+    ...(typeof costUsd === 'number' ? { costUsd } : {}),
   });
 }

@@ -85,6 +85,22 @@ async function critiqueWithGemini(
     `[gemini-critic] sending ${(videoBytes.length / 1024).toFixed(1)} KiB to ${cfg.model}`
   );
 
+  const logFile = path.join(ctx.logDir, 'critic.openrouter.log');
+  // Snapshot the request shape for postmortem inspection. The video data URL
+  // is redacted (would be MBs of base64) — its byte size goes in instead.
+  appendSilent(
+    logFile,
+    formatLogBlock('REQUEST', {
+      url: OPENROUTER_URL,
+      model: cfg.model,
+      providerOrder: cfg.providerOrder,
+      allowFallbacks: cfg.allowFallbacks,
+      promptLen: input.prompt.length,
+      videoBytes: videoBytes.length,
+      videoMime: mime,
+    })
+  );
+
   const body: Record<string, unknown> = {
     model: cfg.model,
     messages: [
@@ -138,12 +154,23 @@ async function critiqueWithGemini(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    appendSilent(
+      logFile,
+      formatLogBlock('ERROR', { status: res.status, statusText: res.statusText, body: text })
+    );
     throw new Error(
       `OpenRouter responded ${res.status} ${res.statusText}: ${text.slice(0, 600)}`
     );
   }
 
-  const json = (await res.json()) as OpenRouterResponse;
+  // Read raw text so the log captures it verbatim, then JSON.parse separately
+  // (response.json() would consume the stream and lose the raw form).
+  const rawText = await res.text();
+  appendSilent(
+    logFile,
+    formatLogBlock('RESPONSE', { status: res.status, body: rawText })
+  );
+  const json = JSON.parse(rawText) as OpenRouterResponse;
   const choice = json.choices?.[0];
   const content = choice?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
@@ -153,6 +180,21 @@ async function critiqueWithGemini(
   }
 
   ctx.emit({ kind: 'agent_token', phase: 'critiquing', text: content });
+
+  // Emit token_usage so the orchestrator's setRunStatus rollup can persist
+  // critic tokens on the run row alongside coder tokens — same path either
+  // adapter takes.
+  if (
+    typeof json.usage?.prompt_tokens === 'number' ||
+    typeof json.usage?.completion_tokens === 'number'
+  ) {
+    ctx.emit({
+      kind: 'token_usage',
+      phase: 'critiquing',
+      inputTokens: json.usage.prompt_tokens ?? 0,
+      outputTokens: json.usage.completion_tokens ?? 0,
+    });
+  }
 
   const critique = parseCritiqueOrThrow(content);
   return {
@@ -301,4 +343,17 @@ function makeAbortError(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
   return err;
+}
+
+function appendSilent(file: string, data: string): void {
+  try {
+    fs.appendFileSync(file, data);
+  } catch {
+    // ignore — events table is the structured source of truth
+  }
+}
+
+function formatLogBlock(label: string, payload: unknown): string {
+  const ts = new Date().toISOString();
+  return `--- ${label} ${ts} ---\n${JSON.stringify(payload, null, 2)}\n\n`;
 }

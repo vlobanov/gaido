@@ -71,6 +71,7 @@ async function critiqueWithClaudeCode(
       frameCount: cfg.frameCount,
       logger: ctx.logger,
       abortSignal: ctx.abortSignal,
+      logFile: path.join(ctx.logDir, 'critic.ffmpeg.log'),
     });
     if (ctx.abortSignal.aborted) throw makeAbortError();
 
@@ -152,6 +153,23 @@ function runClaude(
     let finalText = '';
     let settled = false;
 
+    // Tee raw subprocess streams to the per-run log dir so the same
+    // postmortem surface exists for critic runs as for coder runs.
+    const stdoutLog = fs.createWriteStream(
+      path.join(ctx.logDir, 'critic.stdout.log'),
+      { flags: 'a' }
+    );
+    const stderrLog = fs.createWriteStream(
+      path.join(ctx.logDir, 'critic.stderr.log'),
+      { flags: 'a' }
+    );
+    stdoutLog.on('error', (err) =>
+      ctx.logger.warn(`[claude-critic] stdout log: ${err.message}`)
+    );
+    stderrLog.on('error', (err) =>
+      ctx.logger.warn(`[claude-critic] stderr log: ${err.message}`)
+    );
+
     const onAbort = () => {
       if (settled) return;
       ctx.logger.warn('[claude-critic] aborting subprocess');
@@ -170,10 +188,13 @@ function runClaude(
       if (settled) return;
       settled = true;
       ctx.abortSignal.removeEventListener('abort', onAbort);
+      stdoutLog.end();
+      stderrLog.end();
       fn();
     };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutLog.write(chunk);
       stdoutBuf += chunk.toString('utf8');
       let nl: number;
       while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
@@ -192,6 +213,7 @@ function runClaude(
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
+      stderrLog.write(chunk);
       stderrBuf += chunk.toString('utf8');
     });
 
@@ -285,6 +307,8 @@ interface ExtractOpts {
   frameCount: number;
   logger: RunContext['logger'];
   abortSignal: AbortSignal;
+  /** If set, ffmpeg stderr from probe + extract is appended here. */
+  logFile?: string;
 }
 
 async function extractFrames(opts: ExtractOpts): Promise<string[]> {
@@ -297,7 +321,11 @@ async function extractFrames(opts: ExtractOpts): Promise<string[]> {
   // Easiest path: probe duration with ffprobe-style `-stats`, then for each
   // i in [0..N-1] do a single -ss <t> -i video -frames:v 1 capture. N small
   // (default 6) so this is fast and gives us deterministic timestamps.
-  const duration = await probeDuration(opts.ffmpegBin, opts.videoPath);
+  const duration = await probeDuration(
+    opts.ffmpegBin,
+    opts.videoPath,
+    opts.logFile
+  );
   const targetCount = opts.frameCount;
   const padWidth = String(targetCount).length;
   const frames: string[] = [];
@@ -325,14 +353,19 @@ async function extractFrames(opts: ExtractOpts): Promise<string[]> {
         '2',
         out,
       ],
-      opts.logger
+      opts.logger,
+      opts.logFile
     );
     frames.push(out);
   }
   return frames;
 }
 
-function probeDuration(ffmpegBin: string, videoPath: string): Promise<number> {
+function probeDuration(
+  ffmpegBin: string,
+  videoPath: string,
+  logFile?: string
+): Promise<number> {
   // Avoids a separate ffprobe dep. Run ffmpeg with -i and parse "Duration:"
   // from stderr. Robust enough for our renderer's outputs.
   return new Promise((resolve, reject) => {
@@ -341,6 +374,7 @@ function probeDuration(ffmpegBin: string, videoPath: string): Promise<number> {
     });
     let buf = '';
     child.stderr.on('data', (c: Buffer) => {
+      if (logFile) appendSilent(logFile, c);
       buf += c.toString('utf8');
     });
     child.on('error', (err: NodeJS.ErrnoException) => {
@@ -373,12 +407,14 @@ function probeDuration(ffmpegBin: string, videoPath: string): Promise<number> {
 function runFfmpeg(
   bin: string,
   args: string[],
-  logger: RunContext['logger']
+  logger: RunContext['logger'],
+  logFile?: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', (c: Buffer) => {
+      if (logFile) appendSilent(logFile, c);
       stderr += c.toString('utf8');
     });
     child.on('error', (err: NodeJS.ErrnoException) => {
@@ -494,4 +530,16 @@ function makeAbortError(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
   return err;
+}
+
+/**
+ * Best-effort sync append. Swallows errors so a misbehaving disk doesn't
+ * crash the run — the structured event log in SQLite is the primary record.
+ */
+function appendSilent(file: string, data: Buffer | string): void {
+  try {
+    fs.appendFileSync(file, data);
+  } catch {
+    // ignore
+  }
 }
