@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
+import { useLocation } from 'wouter';
 import type { NodeStatus, PersistedEvent } from '@gaido/core';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '@gaido/server';
 import { trpc } from './trpc';
 import { useUiStore } from '../store';
+import { canvasHref } from './canvas-url';
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type NodeRow = RouterOutputs['nodes']['list'][number];
+type CanvasRow = RouterOutputs['canvases']['get'];
 
 interface WaitForOpts {
   timeoutMs?: number;
@@ -16,10 +19,12 @@ interface WaitForOpts {
 export interface GaidoDebug {
   nodes(): NodeRow[];
   selectedNodeId(): string | null;
+  currentCanvas(): { id: string; slug: string; name: string | null } | null;
   events: PersistedEvent[];
 
   trigger: {
     createRoot(instruction: string): Promise<unknown>;
+    createCanvas(name?: string): Promise<unknown>;
     /**
      * Fork a coder node: waits for its auto-spawned critique child to exist,
      * then creates a new coder under that critique. Multiple forks from the
@@ -84,8 +89,16 @@ function waitFor(
   });
 }
 
-export function DebugBridge() {
+interface DebugBridgeProps {
+  canvasId: string;
+}
+
+export function DebugBridge({ canvasId }: DebugBridgeProps) {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
+
+  const canvasIdRef = useRef(canvasId);
+  canvasIdRef.current = canvasId;
 
   const eventsRef = useRef<PersistedEvent[]>([]);
 
@@ -94,11 +107,9 @@ export function DebugBridge() {
   const retry = trpc.nodes.retry.useMutation();
   const cancel = trpc.nodes.cancel.useMutation();
   const deleteNode = trpc.nodes.delete.useMutation();
+  const createCanvas = trpc.canvases.create.useMutation();
 
-  // Single global subscription serves two jobs:
-  // 1. Buffer events for window.__gaido tests.
-  // 2. Invalidate nodes.list on phase boundaries so graph cards update live
-  //    without polling. tanstack-query coalesces concurrent invalidations.
+  // Global firehose: feeds the __gaido.events ring buffer for tests.
   trpc.events.subscribe.useSubscription(
     {},
     {
@@ -108,7 +119,15 @@ export function DebugBridge() {
         if (buf.length > EVENT_BUFFER_MAX) {
           buf.splice(0, buf.length - EVENT_BUFFER_MAX);
         }
+      },
+    }
+  );
 
+  // Canvas-scoped: invalidate nodes.list only on events for the active canvas.
+  trpc.events.subscribe.useSubscription(
+    { canvasId },
+    {
+      onData: (event: PersistedEvent) => {
         const kind = event.payload.kind;
         if (kind === 'phase_start' || kind === 'phase_end' || kind === 'error') {
           void utils.nodes.list.invalidate();
@@ -119,7 +138,10 @@ export function DebugBridge() {
 
   useEffect(() => {
     const findCritiqueChild = (coderNodeId: string): NodeRow | null => {
-      const list = utils.nodes.list.getData() ?? [];
+      const list =
+        utils.nodes.list.getData({ canvasId: canvasIdRef.current }) ??
+        utils.nodes.list.getData() ??
+        [];
       return (
         list.find(
           (n) => n.parentId === coderNodeId && n.kind === 'critique'
@@ -127,27 +149,55 @@ export function DebugBridge() {
       );
     };
 
+    const lookupCurrentCanvas = (): CanvasRow | null => {
+      const id = canvasIdRef.current;
+      const list = utils.canvases.list.getData() ?? [];
+      const byList = list.find((c) => c.id === id);
+      if (byList) return byList;
+      return utils.canvases.get.getData({ id }) ?? null;
+    };
+
     const debug: GaidoDebug = {
       nodes() {
-        return utils.nodes.list.getData() ?? [];
+        return (
+          utils.nodes.list.getData({ canvasId: canvasIdRef.current }) ??
+          utils.nodes.list.getData() ??
+          []
+        );
       },
       selectedNodeId() {
         return useUiStore.getState().selectedNodeId;
+      },
+      currentCanvas() {
+        const c = lookupCurrentCanvas();
+        return c ? { id: c.id, slug: c.slug, name: c.name } : null;
       },
       events: eventsRef.current,
       critiqueChildOf: findCritiqueChild,
       trigger: {
         async createRoot(instruction: string) {
-          const result = await createRoot.mutateAsync({ instruction });
+          const result = await createRoot.mutateAsync({
+            instruction,
+            canvasId: canvasIdRef.current,
+          });
           await utils.nodes.list.invalidate();
           return result;
+        },
+        async createCanvas(name?: string) {
+          const canvas = await createCanvas.mutateAsync({ name });
+          await utils.canvases.list.invalidate();
+          setLocation(canvasHref(canvas));
+          return canvas;
         },
         async fork(coderNodeId: string, instruction: string) {
           // Wait for the coder to finish AND for its auto-spawned critique
           // child to appear in the cached node list.
           await waitFor(
             () => {
-              const list = utils.nodes.list.getData() ?? [];
+              const list =
+                utils.nodes.list.getData({ canvasId: canvasIdRef.current }) ??
+                utils.nodes.list.getData() ??
+                [];
               const coder = list.find((n) => n.id === coderNodeId);
               if (!coder || coder.status !== 'done') return false;
               return list.some(
@@ -202,7 +252,10 @@ export function DebugBridge() {
         const targets = Array.isArray(status) ? status : [status];
         await waitFor(
           () => {
-            const list = utils.nodes.list.getData() ?? [];
+            const list =
+              utils.nodes.list.getData({ canvasId: canvasIdRef.current }) ??
+              utils.nodes.list.getData() ??
+              [];
             const node = list.find((n) => n.id === nodeId);
             return !!node && targets.includes(node.status as NodeStatus);
           },
@@ -220,7 +273,7 @@ export function DebugBridge() {
         delete window.__gaido;
       }
     };
-  }, [utils, createRoot, createChild, retry, cancel, deleteNode]);
+  }, [utils, createRoot, createChild, retry, cancel, deleteNode, createCanvas, setLocation]);
 
   return null;
 }

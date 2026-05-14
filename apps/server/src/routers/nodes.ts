@@ -39,34 +39,39 @@ function isLeafOfBranch(db: Db, node: Node): boolean {
 }
 
 export const nodesRouter = router({
-  list: publicProcedure.query(({ ctx }) => {
-    return ctx.db
-      .select({
-        id: schema.nodes.id,
-        parentId: schema.nodes.parentId,
-        kind: schema.nodes.kind,
-        positionX: schema.nodes.positionX,
-        positionY: schema.nodes.positionY,
-        instruction: schema.nodes.instruction,
-        status: schema.nodes.status,
-        currentRunId: schema.nodes.currentRunId,
-        sessionId: schema.nodes.sessionId,
-        isFavorite: schema.nodes.isFavorite,
-        createdAt: schema.nodes.createdAt,
-        updatedAt: schema.nodes.updatedAt,
-        thumbnailArtifactId: schema.runs.thumbnailArtifactId,
-        videoArtifactId: schema.runs.videoArtifactId,
-        codingStartedAt: schema.runs.codingStartedAt,
-        codingFinishedAt: schema.runs.codingFinishedAt,
-        renderingStartedAt: schema.runs.renderingStartedAt,
-        renderingFinishedAt: schema.runs.renderingFinishedAt,
-        critiquingStartedAt: schema.runs.critiquingStartedAt,
-        critiquingFinishedAt: schema.runs.critiquingFinishedAt,
-      })
-      .from(schema.nodes)
-      .leftJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id))
-      .all();
-  }),
+  list: publicProcedure
+    .input(z.object({ canvasId: z.string().optional() }).optional())
+    .query(({ ctx, input }) => {
+      const base = ctx.db
+        .select({
+          id: schema.nodes.id,
+          parentId: schema.nodes.parentId,
+          canvasId: schema.nodes.canvasId,
+          kind: schema.nodes.kind,
+          positionX: schema.nodes.positionX,
+          positionY: schema.nodes.positionY,
+          instruction: schema.nodes.instruction,
+          status: schema.nodes.status,
+          currentRunId: schema.nodes.currentRunId,
+          sessionId: schema.nodes.sessionId,
+          isFavorite: schema.nodes.isFavorite,
+          createdAt: schema.nodes.createdAt,
+          updatedAt: schema.nodes.updatedAt,
+          thumbnailArtifactId: schema.runs.thumbnailArtifactId,
+          videoArtifactId: schema.runs.videoArtifactId,
+          codingStartedAt: schema.runs.codingStartedAt,
+          codingFinishedAt: schema.runs.codingFinishedAt,
+          renderingStartedAt: schema.runs.renderingStartedAt,
+          renderingFinishedAt: schema.runs.renderingFinishedAt,
+          critiquingStartedAt: schema.runs.critiquingStartedAt,
+          critiquingFinishedAt: schema.runs.critiquingFinishedAt,
+        })
+        .from(schema.nodes)
+        .leftJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id));
+      return input?.canvasId
+        ? base.where(eq(schema.nodes.canvasId, input.canvasId)).all()
+        : base.all();
+    }),
 
   get: publicProcedure
     .input(z.object({ nodeId: z.string() }))
@@ -98,9 +103,25 @@ export const nodesRouter = router({
       z.object({
         instruction: z.string().min(1),
         position: positionSchema,
+        canvasId: z.string().optional(),
       })
     )
     .mutation(({ ctx, input }) => {
+      let canvasId = input.canvasId;
+      if (!canvasId) {
+        const defaultCanvas = ctx.db
+          .select({ id: schema.canvases.id })
+          .from(schema.canvases)
+          .where(eq(schema.canvases.slug, 'default'))
+          .get();
+        if (!defaultCanvas) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'default canvas missing',
+          });
+        }
+        canvasId = defaultCanvas.id;
+      }
       const id = newNodeId();
       const now = Date.now();
       ctx.db
@@ -108,6 +129,7 @@ export const nodesRouter = router({
         .values({
           id,
           parentId: null,
+          canvasId,
           kind: 'coder',
           positionX: input.position?.x ?? 0,
           positionY: input.position?.y ?? 0,
@@ -196,6 +218,7 @@ export const nodesRouter = router({
         .values({
           id,
           parentId: parent.id,
+          canvasId: parent.canvasId,
           kind: 'coder',
           positionX: x,
           positionY: y,
@@ -340,6 +363,7 @@ export const nodesRouter = router({
         .values({
           id,
           parentId: critique.id,
+          canvasId: parentCoder.canvasId,
           kind: 'coder',
           positionX: rightmost + SIBLING_X_STEP,
           positionY: y,
@@ -434,6 +458,22 @@ export const nodesRouter = router({
       // Cancel any in-flight runs we're about to delete.
       for (const id of toDelete) ctx.orchestrator.cancel(id);
 
+      // Cache canvas slug per id so each node's path lookups share one DB hit.
+      const canvasSlugByNodeId = new Map<string, string>();
+      const slugForNode = (nodeId: string): string | null => {
+        const cached = canvasSlugByNodeId.get(nodeId);
+        if (cached) return cached;
+        const row = ctx.db
+          .select({ slug: schema.canvases.slug })
+          .from(schema.nodes)
+          .innerJoin(schema.canvases, eq(schema.nodes.canvasId, schema.canvases.id))
+          .where(eq(schema.nodes.id, nodeId))
+          .get();
+        if (!row) return null;
+        canvasSlugByNodeId.set(nodeId, row.slug);
+        return row.slug;
+      };
+
       // Only anchors own a worktree+branch. Continued nodes share their
       // anchor's directory, so their delete doesn't touch the filesystem.
       const anchorIds = ctx.db
@@ -451,12 +491,22 @@ export const nodesRouter = router({
         })
         .map((n) => n.id);
       for (const id of [...anchorIds].reverse()) {
-        await ctx.workspace.removeNodeWorkspace(id);
+        const slug = slugForNode(id);
+        if (slug) {
+          await ctx.workspace.removeNodeWorkspace({ nodeId: id, canvasSlug: slug });
+        }
       }
 
       // Remove rendered artifact directories from disk for these runs.
-      for (const id of runIds) {
-        const dir = path.join(ctx.paths.artifactsDir, id);
+      const runNodeRows = ctx.db
+        .select({ id: schema.runs.id, nodeId: schema.runs.nodeId })
+        .from(schema.runs)
+        .where(inArray(schema.runs.id, runIds))
+        .all();
+      for (const r of runNodeRows) {
+        const slug = slugForNode(r.nodeId);
+        if (!slug) continue;
+        const dir = path.join(ctx.paths.artifactsDir, slug, r.id);
         if (fs.existsSync(dir)) {
           fs.rmSync(dir, { recursive: true, force: true });
         }

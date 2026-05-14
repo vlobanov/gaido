@@ -20,7 +20,8 @@ interface StartOpts {
    * Absolute path the subprocess should treat as its scratch / per-run state
    * directory. Wired through `config.outDirEnv` when set, AND exposed as
    * the standard `GAIDO_ARTIFACTS_DIR` env var so projects can pick it up
-   * generically. Usually `<project>/runs/.artifacts`.
+   * generically. Usually `<project>/runs/.artifacts`. The orchestrator
+   * writes per-run outputs under `<outDir>/<canvasSlug>/<runId>/`.
    */
   outDir: string;
   /** Absolute path to the gaido project root. Exposed as GAIDO_PROJECT_DIR. */

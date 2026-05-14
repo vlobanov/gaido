@@ -2,6 +2,7 @@ import { resolvePaths } from './paths.js';
 import { loadEnv } from './env-loader.js';
 import { loadConfig } from './config-loader.js';
 import { openDb } from './db.js';
+import { seedDefaultCanvas } from './canvases.js';
 import { EventBus } from './event-bus.js';
 import { Orchestrator } from './orchestrator.js';
 import { recoverInterrupted } from './recovery.js';
@@ -39,6 +40,8 @@ export async function startServer(
   const config = await loadConfig(paths.configFile);
 
   const { db, sqlite } = openDb(paths.dbFile, paths.migrationsDir);
+
+  seedDefaultCanvas(db);
 
   const recovered = recoverInterrupted(db);
   if (recovered.runs > 0) {

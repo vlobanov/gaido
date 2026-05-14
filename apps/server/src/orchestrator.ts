@@ -215,14 +215,19 @@ export class Orchestrator {
     nodeId: string,
     signal: AbortSignal
   ): Promise<void> {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) {
+      this.setRunStatus(runId, nodeId, 'failed', {
+        error: { phase: 'startup', message: `node ${nodeId} not found` },
+      });
+      return;
+    }
+    const canvasId = node.canvasId;
     try {
-      const node = this.db
-        .select()
-        .from(schema.nodes)
-        .where(eq(schema.nodes.id, nodeId))
-        .get();
-      if (!node) throw new Error(`node ${nodeId} not found`);
-
       if (node.kind === 'critique') {
         await this.executeCritique(runId, nodeId, node, signal);
       } else {
@@ -234,7 +239,7 @@ export class Orchestrator {
         return;
       }
       const e = toRunError(err);
-      this.eventBus.publish(runId, {
+      this.eventBus.publish(runId, canvasId, {
         kind: 'error',
         phase: e.phase === 'startup' ? undefined : e.phase,
         message: e.message,
@@ -261,6 +266,8 @@ export class Orchestrator {
             .where(eq(schema.nodes.id, anchorId))
             .get() ?? node);
 
+    const canvasSlug = this.resolveCanvasSlug(node.canvasId);
+
     let sessionId: string | null = anchor.sessionId ?? null;
     const checks = this.config.postCoderChecks;
     const maxAttempts = Math.max(1, this.config.checkMaxRetries);
@@ -268,7 +275,7 @@ export class Orchestrator {
     // Coding phase wraps the coder.run + post-coder check loop. Each
     // additional attempt resumes the same session with the failing check's
     // output as a follow-up message.
-    await this.runPhase(runId, nodeId, 'coding', signal, async () => {
+    await this.runPhase(runId, nodeId, node.canvasId, 'coding', signal, async () => {
       // basisCommit is only consulted on the anchor's first worktree
       // creation; for non-anchor nodes the worktree already exists, so the
       // value is ignored. Walk up to the nearest coder ancestor and use its
@@ -284,6 +291,7 @@ export class Orchestrator {
         : undefined;
       const workdir = await this.workspace.ensureNodeWorkspace({
         nodeId: anchorId,
+        canvasSlug,
         ...(basisCommit ? { basisCommit } : {}),
       });
 
@@ -315,7 +323,7 @@ export class Orchestrator {
             outputDir: workdir,
             abortSignal: signal,
             logger: makeLogger('coder'),
-            emit: (event) => this.eventBus.publish(runId, event),
+            emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
             ...(this.previewServer
               ? { previewServerBase: this.previewServer.baseUrl }
               : {}),
@@ -330,7 +338,7 @@ export class Orchestrator {
           checks,
           workdir,
           projectDir: this.paths.projectDir,
-          artifactsDir: this.paths.artifactsDir,
+          artifactsDir: path.join(this.paths.artifactsDir, canvasSlug),
           runId,
           nodeId,
           abortSignal: signal,
@@ -338,7 +346,7 @@ export class Orchestrator {
 
         if (checkResult.ok) {
           for (const c of checks) {
-            this.eventBus.publish(runId, {
+            this.eventBus.publish(runId, node.canvasId, {
               kind: 'check_attempt',
               attempt,
               check: c.name,
@@ -348,7 +356,7 @@ export class Orchestrator {
           break;
         }
 
-        this.eventBus.publish(runId, {
+        this.eventBus.publish(runId, node.canvasId, {
           kind: 'check_attempt',
           attempt,
           check: checkResult.failedCheck,
@@ -387,6 +395,7 @@ export class Orchestrator {
     // resulting sha is recorded on the current run row regardless.
     const sha = await this.workspace.commitRun({
       nodeId: anchorId,
+      canvasSlug,
       runId,
       message: `run ${runId}`,
     });
@@ -402,16 +411,16 @@ export class Orchestrator {
     // Write-only: no consumer yet, but having the data already on disk
     // means fork-with-session-history can land later as a read-only change.
     snapshotClaudeSession({
-      workdir: this.workspace.workspacePath(anchorId),
+      workdir: this.workspace.workspacePath({ nodeId: anchorId, canvasSlug }),
       sessionId,
       runId,
-      runsDir: this.paths.runsDir,
+      runsDir: path.join(this.paths.runsDir, canvasSlug),
     });
 
     // Rendering phase.
-    await this.runPhase(runId, nodeId, 'rendering', signal, async () => {
-      const workdir = this.workspace.workspacePath(anchorId);
-      const outputDir = path.join(this.paths.artifactsDir, runId);
+    await this.runPhase(runId, nodeId, node.canvasId, 'rendering', signal, async () => {
+      const workdir = this.workspace.workspacePath({ nodeId: anchorId, canvasSlug });
+      const outputDir = path.join(this.paths.artifactsDir, canvasSlug, runId);
       fs.mkdirSync(outputDir, { recursive: true });
 
       const result = await this.config.renderer.render(
@@ -428,7 +437,7 @@ export class Orchestrator {
           outputDir,
           abortSignal: signal,
           logger: makeLogger('renderer'),
-          emit: (event) => this.eventBus.publish(runId, event),
+          emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
           ...(this.previewServer
             ? { previewServerBase: this.previewServer.baseUrl }
             : {}),
@@ -496,9 +505,11 @@ export class Orchestrator {
       throw new Error('parent video artifact row missing');
     }
 
+    const canvasSlug = this.resolveCanvasSlug(node.canvasId);
+
     let critique: Critique | null = null;
-    await this.runPhase(runId, nodeId, 'critiquing', signal, async () => {
-      const codePath = this.workspace.workspacePath(parent.id);
+    await this.runPhase(runId, nodeId, node.canvasId, 'critiquing', signal, async () => {
+      const codePath = this.workspace.workspacePath({ nodeId: parent.id, canvasSlug });
       const result = await this.config.critic.critique(
         {
           videoPath: videoArtifact.path,
@@ -509,16 +520,26 @@ export class Orchestrator {
           nodeId,
           runId,
           workdir: codePath,
-          outputDir: path.join(this.paths.artifactsDir, runId),
+          outputDir: path.join(this.paths.artifactsDir, canvasSlug, runId),
           abortSignal: signal,
           logger: makeLogger('critic'),
-          emit: (event) => this.eventBus.publish(runId, event),
+          emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
         }
       );
       critique = result.critique ?? null;
     });
 
     this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
+  }
+
+  private resolveCanvasSlug(canvasId: string): string {
+    const row = this.db
+      .select({ slug: schema.canvases.slug })
+      .from(schema.canvases)
+      .where(eq(schema.canvases.id, canvasId))
+      .get();
+    if (!row) throw new Error(`canvas ${canvasId} not found`);
+    return row.slug;
   }
 
   /**
@@ -568,6 +589,7 @@ export class Orchestrator {
       .values({
         id,
         parentId: fresh.id,
+        canvasId: fresh.canvasId,
         kind: 'critique',
         positionX: fresh.positionX,
         positionY: nextChildY(fresh.positionY, CODER_CARD_HEIGHT),
@@ -584,6 +606,7 @@ export class Orchestrator {
   private async runPhase(
     runId: string,
     nodeId: string,
+    canvasId: string,
     phase: RunPhase,
     signal: AbortSignal,
     body: () => Promise<void>
@@ -605,7 +628,7 @@ export class Orchestrator {
       .where(eq(schema.nodes.id, nodeId))
       .run();
 
-    this.eventBus.publish(runId, { kind: 'phase_start', phase });
+    this.eventBus.publish(runId, canvasId, { kind: 'phase_start', phase });
 
     try {
       await body();
@@ -618,7 +641,7 @@ export class Orchestrator {
         })
         .where(eq(schema.runs.id, runId))
         .run();
-      this.eventBus.publish(runId, { kind: 'phase_end', phase, ok: true });
+      this.eventBus.publish(runId, canvasId, { kind: 'phase_end', phase, ok: true });
     } catch (err) {
       const finishedAt = Date.now();
       this.db
@@ -629,7 +652,7 @@ export class Orchestrator {
         })
         .where(eq(schema.runs.id, runId))
         .run();
-      this.eventBus.publish(runId, { kind: 'phase_end', phase, ok: false });
+      this.eventBus.publish(runId, canvasId, { kind: 'phase_end', phase, ok: false });
       // Re-throw so execute() can branch on aborted vs error.
       throw err instanceof Error ? attachPhase(err, phase) : err;
     }

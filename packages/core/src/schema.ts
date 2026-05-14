@@ -3,11 +3,26 @@ import { sql } from 'drizzle-orm';
 import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot } from './types.js';
 import type { EventPayload } from './events.js';
 
+export const canvases = sqliteTable(
+  'canvases',
+  {
+    id: text('id').primaryKey(),
+    name: text('name'),
+    slug: text('slug').notNull(),
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex('canvases_slug_unique').on(table.slug),
+  })
+);
+
 export const nodes = sqliteTable(
   'nodes',
   {
     id: text('id').primaryKey(),
     parentId: text('parent_id'),
+    canvasId: text('canvas_id').notNull().references(() => canvases.id),
     kind: text('kind').$type<NodeKind>().notNull().default('coder'),
     positionX: real('position_x').notNull().default(0),
     positionY: real('position_y').notNull().default(0),
@@ -29,6 +44,7 @@ export const nodes = sqliteTable(
   },
   (table) => ({
     parentIdx: index('nodes_parent_idx').on(table.parentId),
+    canvasIdx: index('nodes_canvas_idx').on(table.canvasId),
     statusIdx: index('nodes_status_idx').on(table.status),
     kindIdx: index('nodes_kind_idx').on(table.kind),
     branchAnchorIdx: index('nodes_branch_anchor_idx').on(table.branchAnchorId),
@@ -108,3 +124,5 @@ export type Artifact = typeof artifacts.$inferSelect;
 export type NewArtifact = typeof artifacts.$inferInsert;
 export type DbEvent = typeof events.$inferSelect;
 export type NewDbEvent = typeof events.$inferInsert;
+export type Canvas = typeof canvases.$inferSelect;
+export type NewCanvas = typeof canvases.$inferInsert;

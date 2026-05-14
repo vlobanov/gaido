@@ -7,12 +7,14 @@ const exec = promisify(execFile);
 
 export interface CommitRunArgs {
   nodeId: string;
+  canvasSlug: string;
   runId: string;
   message: string;
 }
 
 export interface EnsureNodeArgs {
   nodeId: string;
+  canvasSlug: string;
   /**
    * Commit SHA (or any ref) to root this node's branch at. Used only on
    * first creation of the worktree — subsequent calls return the existing
@@ -23,9 +25,19 @@ export interface EnsureNodeArgs {
   basisCommit?: string;
 }
 
+export interface WorkspacePathArgs {
+  nodeId: string;
+  canvasSlug: string;
+}
+
+export interface RemoveNodeArgs {
+  nodeId: string;
+  canvasSlug: string;
+}
+
 export interface WorkspaceManager {
   /** Path to a node's worktree (does not check existence). */
-  workspacePath(nodeId: string): string;
+  workspacePath(args: WorkspacePathArgs): string;
   /** True iff the bare git store at runs/.git is initialized. */
   isInitialized(): boolean;
   /** Initialize the bare store; seed `main` from skeleton. Idempotent. */
@@ -42,7 +54,7 @@ export interface WorkspaceManager {
    */
   commitRun(args: CommitRunArgs): Promise<string | null>;
   /** Remove worktree + branch. Idempotent. */
-  removeNodeWorkspace(nodeId: string): Promise<void>;
+  removeNodeWorkspace(args: RemoveNodeArgs): Promise<void>;
 }
 
 export interface CreateWorkspaceManagerOpts {
@@ -114,8 +126,13 @@ export function createWorkspaceManager(
 
   const ensureNodeWorkspace = async (args: EnsureNodeArgs): Promise<string> => {
     await initStore();
-    const wt = path.join(runsDir, args.nodeId);
+    const canvasDir = path.join(runsDir, args.canvasSlug);
+    const wt = path.join(canvasDir, args.nodeId);
     if (fs.existsSync(path.join(wt, '.git'))) return wt;
+
+    // Ensure the canvas-slug parent exists so `git worktree add` has a valid
+    // target path (git creates the leaf, not intermediate dirs).
+    fs.mkdirSync(canvasDir, { recursive: true });
 
     // Clean up any orphaned worktree records (e.g., dir nuked manually).
     try {
@@ -135,7 +152,7 @@ export function createWorkspaceManager(
   };
 
   const commitRun = async (args: CommitRunArgs): Promise<string | null> => {
-    const wt = path.join(runsDir, args.nodeId);
+    const wt = path.join(runsDir, args.canvasSlug, args.nodeId);
     if (!fs.existsSync(path.join(wt, '.git'))) {
       throw new Error(`commitRun: worktree missing for ${args.nodeId}`);
     }
@@ -147,16 +164,16 @@ export function createWorkspaceManager(
     return sha.trim();
   };
 
-  const removeNodeWorkspace = async (nodeId: string): Promise<void> => {
+  const removeNodeWorkspace = async (args: RemoveNodeArgs): Promise<void> => {
     if (!isInitialized()) return;
-    const wt = path.join(runsDir, nodeId);
+    const wt = path.join(runsDir, args.canvasSlug, args.nodeId);
     try {
       await git('worktree', 'remove', '--force', wt);
     } catch {
       // worktree may have been removed manually; fall through
     }
     try {
-      await git('branch', '-D', branchOf(nodeId));
+      await git('branch', '-D', branchOf(args.nodeId));
     } catch {
       // branch may not exist; ignore
     }
@@ -166,7 +183,7 @@ export function createWorkspaceManager(
   };
 
   return {
-    workspacePath: (nodeId) => path.join(runsDir, nodeId),
+    workspacePath: (args) => path.join(runsDir, args.canvasSlug, args.nodeId),
     isInitialized,
     initStore,
     ensureNodeWorkspace,

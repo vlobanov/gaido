@@ -1,13 +1,23 @@
 import { useState } from 'react';
 import { trpc } from '../lib/trpc';
 
-export function EmptyState() {
+interface CanvasSummary {
+  id: string;
+  slug: string;
+  name: string | null;
+}
+
+interface EmptyStateProps {
+  canvas: CanvasSummary;
+}
+
+export function EmptyState({ canvas }: EmptyStateProps) {
   const [modalOpen, setModalOpen] = useState(false);
   return (
     <div className="flex h-full w-full items-center justify-center bg-paper">
       <div className="flex max-w-md flex-col items-start gap-6 px-8">
         <div className="font-mono text-xs uppercase tracking-caps text-ink-muted">
-          Workspace · empty
+          Canvas · empty
         </div>
         <h2 className="font-serif text-3xl leading-tight text-ink">
           A blank page is the start of every notebook.
@@ -27,16 +37,17 @@ export function EmptyState() {
         </button>
       </div>
 
-      {modalOpen ? <CreateRootModal onClose={() => setModalOpen(false)} /> : null}
+      {modalOpen ? <CreateRootModal canvas={canvas} onClose={() => setModalOpen(false)} /> : null}
     </div>
   );
 }
 
 interface CreateRootModalProps {
+  canvas: CanvasSummary;
   onClose: () => void;
 }
 
-function CreateRootModal({ onClose }: CreateRootModalProps) {
+export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [instruction, setInstruction] = useState('');
   const utils = trpc.useUtils();
   const createRoot = trpc.nodes.createRoot.useMutation({
@@ -50,8 +61,10 @@ function CreateRootModal({ onClose }: CreateRootModalProps) {
     e.preventDefault();
     const trimmed = instruction.trim();
     if (!trimmed) return;
-    createRoot.mutate({ instruction: trimmed });
+    createRoot.mutate({ instruction: trimmed, canvasId: canvas.id });
   };
+
+  const canvasLabel = canvas.name?.trim() ? canvas.name : canvas.slug;
 
   return (
     <div
@@ -64,12 +77,17 @@ function CreateRootModal({ onClose }: CreateRootModalProps) {
         data-testid="create-root-form"
         className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
       >
-        <div className="mb-5 flex items-baseline justify-between gap-3">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
           <h3 className="font-serif text-xl text-ink">Seed root node</h3>
           <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
             New entry
           </span>
         </div>
+        <p className="mb-5 font-serif text-sm leading-snug text-ink-soft">
+          Adds another lane to{' '}
+          <span className="font-mono uppercase tracking-caps text-ink">{canvasLabel}</span>.
+          To start a separate canvas, use the canvas switcher in the toolbar above.
+        </p>
         <label
           htmlFor="create-root-input"
           className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
