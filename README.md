@@ -29,6 +29,17 @@ runs/              # per-run agent workspaces and artifacts
 Each root coder picks a skeleton at creation time. Project presets in
 `./skeletons/<name>/` shadow global presets in `~/.gaido/skeletons/<name>/`.
 
+## Agent skill
+
+`skills/gaido/SKILL.md` is a primer for AI coding agents (Claude Code, Codex,
+etc.) working in a project that uses gaido. `gaido init` offers to symlink it
+into common agent-known paths (`.claude/skills/gaido`, `.skills/gaido`). Or
+link it manually:
+
+```sh
+ln -s /path/to/gaido/skills/gaido <your-project>/.claude/skills/gaido
+```
+
 ## Repo layout (this monorepo)
 
 ```
