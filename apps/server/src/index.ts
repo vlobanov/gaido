@@ -78,6 +78,10 @@ export async function startServer(
     });
     // eslint-disable-next-line no-console
     console.log(`[gaido] preview server ready at ${previewServer.baseUrl}`);
+    if (previewServer.publicBaseUrl !== previewServer.baseUrl) {
+      // eslint-disable-next-line no-console
+      console.log(`[gaido] preview server public URL: ${previewServer.publicBaseUrl}`);
+    }
   }
 
   const orchestrator = new Orchestrator({

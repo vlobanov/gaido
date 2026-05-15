@@ -2,8 +2,18 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { PreviewServerConfig } from '@gaido/core';
 
 export interface PreviewServerHandle {
-  /** Base URL the server is reachable on, e.g. 'http://127.0.0.1:3004'. */
+  /**
+   * Internal base URL the server is reachable on from this machine, e.g.
+   * 'http://127.0.0.1:3004'. Used server-side (Playwright renderer, readiness
+   * probes). Never sent to remote browsers.
+   */
   readonly baseUrl: string;
+  /**
+   * Base URL the artist's browser uses to reach this server. Equals
+   * `config.publicBaseUrl` when set, else falls back to `baseUrl`. Used to
+   * build links shown in the UI and to rewrite per-run `previewUrl` hosts.
+   */
+  readonly publicBaseUrl: string;
   /** Stop the subprocess. Idempotent. */
   stop(): Promise<void>;
 }
@@ -134,7 +144,8 @@ export async function startPreviewServer(
     );
   });
 
-  return { baseUrl, stop };
+  const publicBaseUrl = (config.publicBaseUrl ?? baseUrl).replace(/\/$/, '');
+  return { baseUrl, publicBaseUrl, stop };
 }
 
 async function waitForReady(url: string, timeoutMs: number): Promise<void> {

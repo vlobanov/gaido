@@ -17,6 +17,14 @@ export interface PreviewServerConfig {
   /** Subprocess cwd. Default: project root. */
   cwd?: string;
   /**
+   * Public base URL the artist's browser uses to reach this server, when
+   * gaido is fronted by a reverse proxy or tunnel (e.g. Cloudflare Tunnel).
+   * Used to rewrite the host of the per-run `previewUrl` shown in the UI.
+   * The internal `http://127.0.0.1:<port>` is still used server-side (the
+   * Playwright renderer always hits localhost). Default: same as internal.
+   */
+  publicBaseUrl?: string;
+  /**
    * If set, gaido exports this env var to the subprocess pointing at the
    * shared artifacts dir (where per-run scene.json / metaparams.json live).
    * Example: 'VE_ANIMATOR_OUT_DIR'.

@@ -460,9 +460,16 @@ export class Orchestrator {
         );
       }
       if (result.previewUrl) {
+        const persistedUrl = this.previewServer
+          ? swapBase(
+              result.previewUrl,
+              this.previewServer.baseUrl,
+              this.previewServer.publicBaseUrl
+            )
+          : result.previewUrl;
         this.db
           .update(schema.runs)
-          .set({ previewUrl: result.previewUrl, updatedAt: Date.now() })
+          .set({ previewUrl: persistedUrl, updatedAt: Date.now() })
           .where(eq(schema.runs.id, runId))
           .run();
       }
@@ -874,6 +881,13 @@ function prependLessons(instruction: string, lessonsFile: string): string {
   }
   if (!body) return instruction;
   return `PROJECT RULES (apply to every render in this project):\n\n${body}\n\n---\n\n${instruction}`;
+}
+
+function swapBase(url: string, fromBase: string, toBase: string): string {
+  const from = fromBase.replace(/\/$/, '');
+  const to = toBase.replace(/\/$/, '');
+  if (from === to) return url;
+  return url.startsWith(from) ? to + url.slice(from.length) : url;
 }
 
 function makeLogger(prefix: string): Logger {
