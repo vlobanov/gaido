@@ -26,6 +26,7 @@ interface GaidoNode {
   currentRunId: string | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  previewUrl: string | null;
   codingStartedAt: number | null;
   codingFinishedAt: number | null;
   renderingStartedAt: number | null;
@@ -104,6 +105,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           currentRunId: n.currentRunId,
           thumbnailArtifactId: n.thumbnailArtifactId,
           videoArtifactId: n.videoArtifactId,
+          previewUrl: n.previewUrl,
           codingStartedAt: n.codingStartedAt,
           codingFinishedAt: n.codingFinishedAt,
           renderingStartedAt: n.renderingStartedAt,

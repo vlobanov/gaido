@@ -59,6 +59,7 @@ export const nodesRouter = router({
           updatedAt: schema.nodes.updatedAt,
           thumbnailArtifactId: schema.runs.thumbnailArtifactId,
           videoArtifactId: schema.runs.videoArtifactId,
+          previewUrl: schema.runs.previewUrl,
           codingStartedAt: schema.runs.codingStartedAt,
           codingFinishedAt: schema.runs.codingFinishedAt,
           renderingStartedAt: schema.runs.renderingStartedAt,

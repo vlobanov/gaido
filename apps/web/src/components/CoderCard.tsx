@@ -18,6 +18,7 @@ export interface CoderCardData extends PhaseTiming {
   currentRunId: string | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  previewUrl: string | null;
   selected: boolean;
   [key: string]: unknown;
 }
@@ -89,12 +90,15 @@ function CoderCardComponent({ data, selected }: NodeProps) {
           <PhaseTicks data={d} active={active} done={done} failed={failed} />
           <StatusBadge status={d.status} kind="coder" timing={d} />
         </div>
-        <FavoriteToggle
-          isFavorite={d.isFavorite}
-          onToggle={() =>
-            setFavorite.mutate({ nodeId: d.id, isFavorite: !d.isFavorite })
-          }
-        />
+        <div className="flex items-center gap-2">
+          {done && d.previewUrl ? <PreviewLink href={d.previewUrl} /> : null}
+          <FavoriteToggle
+            isFavorite={d.isFavorite}
+            onToggle={() =>
+              setFavorite.mutate({ nodeId: d.id, isFavorite: !d.isFavorite })
+            }
+          />
+        </div>
       </div>
 
       <Handle type="source" position={Position.Bottom} />
@@ -476,6 +480,35 @@ function PhaseTicks({
         return <span key={i} className={`block h-[2px] w-3 ${tickCls}`} />;
       })}
     </div>
+  );
+}
+
+function PreviewLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(e) => e.stopPropagation()}
+      data-testid="node-preview-link"
+      aria-label="Open live preview in new tab"
+      title="Open live preview"
+      className="inline-flex h-7 w-7 items-center justify-center border border-hairline-deep bg-paper text-ink-muted transition-colors hover:border-ink-faint hover:bg-paper-deep hover:text-ink"
+    >
+      <svg
+        viewBox="0 0 14 14"
+        width="16"
+        height="16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="square"
+        aria-hidden
+      >
+        <path d="M4 10 L10 4" />
+        <path d="M5.5 4 L10 4 L10 8.5" />
+      </svg>
+    </a>
   );
 }
 
