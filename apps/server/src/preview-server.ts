@@ -8,12 +8,6 @@ export interface PreviewServerHandle {
    * probes). Never sent to remote browsers.
    */
   readonly baseUrl: string;
-  /**
-   * Base URL the artist's browser uses to reach this server. Equals
-   * `config.publicBaseUrl` when set, else falls back to `baseUrl`. Used to
-   * build links shown in the UI and to rewrite per-run `previewUrl` hosts.
-   */
-  readonly publicBaseUrl: string;
   /** Stop the subprocess. Idempotent. */
   stop(): Promise<void>;
 }
@@ -144,8 +138,7 @@ export async function startPreviewServer(
     );
   });
 
-  const publicBaseUrl = (config.publicBaseUrl ?? baseUrl).replace(/\/$/, '');
-  return { baseUrl, publicBaseUrl, stop };
+  return { baseUrl, stop };
 }
 
 async function waitForReady(url: string, timeoutMs: number): Promise<void> {

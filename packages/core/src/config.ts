@@ -17,13 +17,14 @@ export interface PreviewServerConfig {
   /** Subprocess cwd. Default: project root. */
   cwd?: string;
   /**
-   * Public base URL the artist's browser uses to reach this server, when
-   * gaido is fronted by a reverse proxy or tunnel (e.g. Cloudflare Tunnel).
-   * Used to rewrite the host of the per-run `previewUrl` shown in the UI.
-   * The internal `http://127.0.0.1:<port>` is still used server-side (the
-   * Playwright renderer always hits localhost). Default: same as internal.
+   * Build the per-run URL the artist's browser opens (the "Open live preview"
+   * link in the UI). Use this when gaido is fronted by a tunnel/reverse proxy
+   * and the artist-facing URL differs from `http://127.0.0.1:<port>`, or when
+   * you want the path/query to differ from what Playwright records against.
+   * The renderer still hits localhost server-side. When omitted, the URL the
+   * renderer returns is persisted as-is.
    */
-  publicBaseUrl?: string;
+  publicUrl?: (args: { runId: string; nodeId: string }) => string;
   /**
    * If set, gaido exports this env var to the subprocess pointing at the
    * shared artifacts dir (where per-run scene.json / metaparams.json live).
