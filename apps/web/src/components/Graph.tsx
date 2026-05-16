@@ -55,10 +55,11 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
   const selectedNodeId = useUiStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
 
-  // Auto-lane: when a canvas contains multiple root coders, shift each root's
-  // subtree horizontally so the trees don't overlap. Single-root canvases are
-  // untouched (offset 0). The shift is applied uniformly to a subtree, so any
-  // future user drags survive relative to their root.
+  // Auto-lane: when a canvas contains multiple root coders that all still
+  // sit at the default X=0, shift each root's subtree horizontally so the
+  // trees don't overlap on first load. Once any root has been moved (via
+  // Re-layout or a future manual drag), positions are authoritative and the
+  // shift steps aside to avoid double-shifting on top of them.
   const laneOffsetByNodeId = useMemo<Map<string, number>>(() => {
     const offsets = new Map<string, number>();
     const roots = serverNodes
@@ -66,6 +67,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
       .slice()
       .sort((a, b) => a.createdAt - b.createdAt);
     if (roots.length <= 1) return offsets;
+    if (roots.some((r) => r.positionX !== 0)) return offsets;
     const rootLane = new Map<string, number>();
     roots.forEach((r, i) => rootLane.set(r.id, i));
     const parentById = new Map<string, string | null>();

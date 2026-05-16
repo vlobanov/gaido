@@ -3,11 +3,17 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { schema, nodeId as newNodeId } from '@gaido/core';
+import type { Critique } from '@gaido/core';
 import type { Node } from '@gaido/core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
 import type { Db } from '../db.js';
-import { critiqueCardHeight, nextChildY, SIBLING_X_STEP } from '../layout.js';
+import {
+  critiqueCardHeight,
+  layoutCanvasNodes,
+  nextChildY,
+  SIBLING_X_STEP,
+} from '../layout.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
 
@@ -430,6 +436,59 @@ export const nodesRouter = router({
         .where(eq(schema.nodes.id, input.nodeId))
         .run();
       return { ok: true as const };
+    }),
+
+  /**
+   * Recompute positions for every node in a canvas using the tidy-tree
+   * layout (see apps/server/src/layout.ts). Persists results so refresh
+   * and subsequent manual drags survive. Critique heights come from each
+   * node's current run, so a long critique pushes its descendants down.
+   */
+  relayout: publicProcedure
+    .input(z.object({ canvasId: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const rows = ctx.db
+        .select({
+          id: schema.nodes.id,
+          parentId: schema.nodes.parentId,
+          kind: schema.nodes.kind,
+          createdAt: schema.nodes.createdAt,
+          currentRunId: schema.nodes.currentRunId,
+        })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.canvasId, input.canvasId))
+        .all();
+
+      const runIds = rows
+        .map((r) => r.currentRunId)
+        .filter((id): id is string => id != null);
+      const critiqueByNodeId = new Map<string, Critique | null>();
+      if (runIds.length > 0) {
+        const runs = ctx.db
+          .select({
+            id: schema.runs.id,
+            nodeId: schema.runs.nodeId,
+            critique: schema.runs.critique,
+          })
+          .from(schema.runs)
+          .where(inArray(schema.runs.id, runIds))
+          .all();
+        for (const r of runs) {
+          critiqueByNodeId.set(r.nodeId, r.critique ?? null);
+        }
+      }
+
+      const positions = layoutCanvasNodes(rows, critiqueByNodeId);
+      const now = Date.now();
+      ctx.db.transaction((tx) => {
+        for (const [id, pos] of positions) {
+          tx.update(schema.nodes)
+            .set({ positionX: pos.x, positionY: pos.y, updatedAt: now })
+            .where(eq(schema.nodes.id, id))
+            .run();
+        }
+      });
+      return { ok: true as const, count: positions.size };
     }),
 
   delete: publicProcedure

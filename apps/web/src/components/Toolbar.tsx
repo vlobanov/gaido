@@ -19,6 +19,10 @@ export function Toolbar({ nodeCount, canvas }: ToolbarProps) {
   const [open, setOpen] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const utils = trpc.useUtils();
+  const relayout = trpc.nodes.relayout.useMutation({
+    onSuccess: () => utils.nodes.list.invalidate(),
+  });
 
   // Close on outside click or Escape.
   useEffect(() => {
@@ -77,8 +81,19 @@ export function Toolbar({ nodeCount, canvas }: ToolbarProps) {
           + Seed root
         </button>
       </div>
-      <div className="font-mono text-xs uppercase tracking-caps text-ink-faint">
-        local · single user
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          data-testid="toolbar-relayout"
+          onClick={() => relayout.mutate({ canvasId: canvas.id })}
+          disabled={relayout.isPending || nodeCount === 0}
+          className="border border-hairline bg-paper px-3 py-1 font-mono text-xs uppercase tracking-caps text-ink-muted opacity-70 transition hover:border-hairline-deep hover:bg-paper-deep hover:text-ink hover:opacity-100 disabled:cursor-default disabled:border-hairline disabled:text-ink-faint disabled:opacity-50 disabled:hover:bg-paper disabled:hover:text-ink-faint"
+        >
+          {relayout.isPending ? 'Laying out…' : 'Re-layout'}
+        </button>
+        <span className="font-mono text-xs uppercase tracking-caps text-ink-faint">
+          local · single user
+        </span>
       </div>
       {seedOpen ? (
         <CreateRootModal canvas={canvas} onClose={() => setSeedOpen(false)} />
