@@ -304,6 +304,9 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           <HumanCritiqueEditor
             nodeId={nodeId}
             initial={currentRun?.critique?.overall ?? ''}
+            onContinue={() => continueNode.mutate({ critiqueNodeId: nodeId })}
+            isContinuing={continueNode.isPending}
+            continueError={continueNode.error?.message ?? null}
           />
         ) : currentRun?.critique ? (
           <Section label="Critique">
@@ -349,24 +352,6 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-          {isHumanCritic ? (
-            <button
-              type="button"
-              disabled={
-                !currentRun?.critique?.overall?.trim() || continueNode.isPending
-              }
-              onClick={() => continueNode.mutate({ critiqueNodeId: nodeId })}
-              data-testid="sidebar-continue"
-              title={
-                currentRun?.critique?.overall?.trim()
-                  ? undefined
-                  : 'Save notes first'
-              }
-              className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
-            >
-              {continueNode.isPending ? 'Continuing…' : 'Continue'}
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={() => setForkOpen(true)}
@@ -395,12 +380,6 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
             Delete
           </button>
         </div>
-
-        {continueNode.error ? (
-          <p className="font-mono text-xs text-sanguine">
-            {continueNode.error.message}
-          </p>
-        ) : null}
 
         {retryNode.error ? (
           <p className="font-mono text-xs text-sanguine">{retryNode.error.message}</p>
@@ -459,9 +438,15 @@ function formatTokens(n: number): string {
 function HumanCritiqueEditor({
   nodeId,
   initial,
+  onContinue,
+  isContinuing,
+  continueError,
 }: {
   nodeId: string;
   initial: string;
+  onContinue: () => void;
+  isContinuing: boolean;
+  continueError: string | null;
 }) {
   const utils = trpc.useUtils();
   const [draft, setDraft] = useState(initial);
@@ -480,6 +465,19 @@ function HumanCritiqueEditor({
   });
 
   const dirty = draft !== initial;
+  const hasNotes = !!draft.trim();
+  const busy = save.isPending || isContinuing;
+
+  const handleSaveAndContinue = async () => {
+    if (dirty) {
+      try {
+        await save.mutateAsync({ nodeId, notes: draft });
+      } catch {
+        return;
+      }
+    }
+    onContinue();
+  };
 
   return (
     <Section label="Critique (yours)">
@@ -495,12 +493,26 @@ function HumanCritiqueEditor({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          disabled={!dirty || save.isPending}
+          disabled={!hasNotes || busy}
+          onClick={handleSaveAndContinue}
+          data-testid="sidebar-continue"
+          title={hasNotes ? undefined : 'Write some notes first'}
+          className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+        >
+          {save.isPending
+            ? 'Saving…'
+            : isContinuing
+              ? 'Continuing…'
+              : 'Save & Continue'}
+        </button>
+        <button
+          type="button"
+          disabled={!dirty || busy}
           onClick={() => save.mutate({ nodeId, notes: draft })}
           data-testid="human-critique-save"
-          className="border border-hairline-deep bg-paper px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+          className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
         >
-          {save.isPending ? 'Saving…' : 'Save notes'}
+          {save.isPending ? 'Saving…' : 'Save'}
         </button>
         {!dirty && initial ? (
           <span className="font-mono text-xs uppercase tracking-caps text-ink-faint">
@@ -509,6 +521,9 @@ function HumanCritiqueEditor({
         ) : null}
         {save.error ? (
           <span className="font-mono text-xs text-sanguine">{save.error.message}</span>
+        ) : null}
+        {continueError ? (
+          <span className="font-mono text-xs text-sanguine">{continueError}</span>
         ) : null}
       </div>
     </Section>
