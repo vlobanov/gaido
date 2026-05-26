@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-or
 import { sql } from 'drizzle-orm';
 import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot } from './types.js';
 import type { EventPayload } from './events.js';
+import type { CoderMessage } from './prompts.js';
 
 export const canvases = sqliteTable(
   'canvases',
@@ -81,6 +82,21 @@ export const runs = sqliteTable(
     previewUrl: text('preview_url'),
     commitSha: text('commit_sha'),
     critique: text('critique', { mode: 'json' }).$type<Critique>(),
+    /**
+     * Coder's MESSAGE.md after parsing — populated when the coder chose to
+     * talk back to the artist (impossibility, question, note). When the
+     * message's `producedArtifact` is false the orchestrator also skips
+     * render + critic auto-spawn for this run.
+     */
+    message: text('message', { mode: 'json' }).$type<CoderMessage>(),
+    /**
+     * Artist's reply that triggered this run, when the run was kicked off
+     * from the message thread (not from create/retry/continue). Used in the
+     * UI thread to render the artist's side of the conversation alongside
+     * the coder's MESSAGE.md outputs. Also passed to the coder adapter as
+     * the next turn in the resumed session.
+     */
+    artistFollowUp: text('artist_follow_up'),
     costUsd: real('cost_usd'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out'),

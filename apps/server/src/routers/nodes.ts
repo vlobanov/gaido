@@ -66,6 +66,7 @@ export const nodesRouter = router({
           thumbnailArtifactId: schema.runs.thumbnailArtifactId,
           videoArtifactId: schema.runs.videoArtifactId,
           previewUrl: schema.runs.previewUrl,
+          message: schema.runs.message,
           codingStartedAt: schema.runs.codingStartedAt,
           codingFinishedAt: schema.runs.codingFinishedAt,
           renderingStartedAt: schema.runs.renderingStartedAt,
@@ -102,7 +103,25 @@ export const nodesRouter = router({
       // that have continued descendants — cheaper than another round-trip
       // and keeps the rule colocated with the rejection in `retry`.
       const retryable = node.kind === 'coder' ? isLeafOfBranch(ctx.db, node) : true;
-      return { node, currentRun, retryable };
+      // `hasSession` reports whether the coder's branch has a live Claude
+      // Code session. Continuations don't carry their own session_id — the
+      // session lives on the anchor row — so the UI can't read it off
+      // `node.sessionId` directly. The Reply textbox uses this to gate
+      // input; the server-side `reply` mutation mirrors the same check.
+      let hasSession = false;
+      if (node.kind === 'coder') {
+        if (node.sessionId) {
+          hasSession = true;
+        } else if (node.branchAnchorId) {
+          const anchor = ctx.db
+            .select({ sessionId: schema.nodes.sessionId })
+            .from(schema.nodes)
+            .where(eq(schema.nodes.id, node.branchAnchorId))
+            .get();
+          hasSession = !!anchor?.sessionId;
+        }
+      }
+      return { node, currentRun, retryable, hasSession };
     }),
 
   createRoot: publicProcedure
@@ -277,6 +296,65 @@ export const nodesRouter = router({
       // If a run is in flight, abort it before queuing the next one.
       ctx.orchestrator.cancel(node.id);
       return ctx.orchestrator.startRun(node.id);
+    }),
+
+  /**
+   * Reply to a coder's MESSAGE.md in-thread: stack a new run on the same
+   * node that resumes the coder's Claude Code session with `text` as the
+   * next turn. The text is persisted on the new run's `artistFollowUp`
+   * column so the UI thread can render it. Requires the node to already
+   * have a session (i.e., at least one prior coder run completed) — a
+   * follow-up on a fresh node would silently displace the framework
+   * preamble + instruction the coder needs on turn 1.
+   */
+  reply: publicProcedure
+    .input(z.object({ nodeId: z.string(), text: z.string().min(1) }))
+    .mutation(({ ctx, input }) => {
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get();
+      if (!node) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `node ${input.nodeId}`,
+        });
+      }
+      if (node.kind !== 'coder') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'reply only valid on coder nodes',
+        });
+      }
+      if (!isLeafOfBranch(ctx.db, node)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'this coder has continued descendants on its branch — fork instead of replying in-place',
+        });
+      }
+      // Need a live session for the reply to land as the next turn. Walk to
+      // the anchor since that's where the session lives for continued nodes.
+      const anchorId = node.branchAnchorId ?? node.id;
+      const anchor =
+        anchorId === node.id
+          ? node
+          : ctx.db
+              .select()
+              .from(schema.nodes)
+              .where(eq(schema.nodes.id, anchorId))
+              .get() ?? node;
+      if (!anchor.sessionId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'no live session yet — wait for the first run to finish before replying',
+        });
+      }
+      // Cancel anything in flight so we don't race a new run on top of it.
+      ctx.orchestrator.cancel(node.id);
+      return ctx.orchestrator.startRun(node.id, { artistFollowUp: input.text });
     }),
 
   /**

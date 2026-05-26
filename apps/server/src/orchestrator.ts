@@ -5,6 +5,8 @@ import {
   runId as newRunId,
   nodeId as newNodeId,
   artifactId as newArtifactId,
+  GAIDO_PROTOCOL_PREAMBLE,
+  MESSAGE_FILENAME,
 } from '@gaido/core';
 import type { Run, Node } from '@gaido/core/schema';
 import type {
@@ -16,6 +18,7 @@ import type {
   RunError,
   EventPayload,
 } from '@gaido/core';
+import { readCoderMessage } from './coder-message.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
@@ -61,8 +64,16 @@ export class Orchestrator {
     this.previewServer = deps.previewServer;
   }
 
-  /** Insert a queued run for `nodeId`, kick off async execution. */
-  startRun(nodeId: string): Run {
+  /**
+   * Insert a queued run for `nodeId`, kick off async execution.
+   *
+   * `artistFollowUp` is an optional artist-typed message sent when the
+   * coder previously dropped MESSAGE.md and the user wants to reply. It's
+   * persisted on the run (for the UI thread) and handed to the coder
+   * adapter as the next turn in the resumed session. Requires the node to
+   * already have a session — the caller (tRPC layer) enforces that.
+   */
+  startRun(nodeId: string, opts?: { artistFollowUp?: string }): Run {
     const id = newRunId();
     const now = Date.now();
     const snapshot: AdapterConfigSnapshot = {
@@ -78,6 +89,7 @@ export class Orchestrator {
         nodeId,
         status: 'running',
         configSnapshot: snapshot,
+        ...(opts?.artistFollowUp ? { artistFollowUp: opts.artistFollowUp } : {}),
         createdAt: now,
         updatedAt: now,
       })
@@ -297,26 +309,61 @@ export class Orchestrator {
           : { seedSkeleton: anchor.skeletonName ?? 'default' }),
       });
 
-      // Compute the rules-prefixed instruction once, outside the retry loop.
-      // Inject project rules only when starting a fresh session — on resume
-      // the rules are already in the conversation history from turn 1, and
-      // retries within the check loop reuse that same session.
-      const instruction = sessionId
-        ? node.instruction
-        : prependLessons(node.instruction, this.paths.lessonsFile);
+      // Clear any MESSAGE.md left over from a prior run on this branch. The
+      // coder writes it fresh this turn if they want to communicate; a
+      // leftover would otherwise be misread as this run's message and
+      // could short-circuit rendering. Deletion is committed by commitRun
+      // if nothing else changed — intentional: it marks the resolution of
+      // the prior turn's open question in git history.
+      fs.rmSync(path.join(workdir, MESSAGE_FILENAME), { force: true });
 
-      let followUp: string | undefined;
+      // Base instruction the coder will see this run. On a fresh session we
+      // compose preamble + project rules + artist instruction; on a resumed
+      // session we send the bare instruction (rules already in conversation
+      // history from turn 1). The framework preamble is handled separately
+      // below — it's prepended on the first turn of EVERY run, fresh or
+      // resumed, so the coder always starts with the protocol in scope even
+      // when continuing a pre-existing session.
+      const baseInstruction = sessionId
+        ? node.instruction
+        : composeFreshSessionInstruction(node.instruction, this.paths.lessonsFile);
+      // On resumed sessions, composeFreshSessionInstruction didn't run so the
+      // preamble is missing from the prompt. We splice it in on the first
+      // iteration only (subsequent iterations are driven by check failures
+      // and the model already saw the preamble this turn).
+      const resumePreamble = sessionId ? GAIDO_PROTOCOL_PREAMBLE : null;
+
+      // Seed the loop's `followUp` from the artist's reply if any. Only
+      // meaningful on resumed sessions — the adapter substitutes followUp
+      // for the prompt, so a fresh run with a followUp would silently lose
+      // the framework preamble + instruction. The tRPC `reply` mutation
+      // rejects that case before getting here, but we belt-and-braces.
+      const artistReply = sessionId ? this.readArtistFollowUp(runId) : null;
+      let followUp: string | undefined = artistReply ?? undefined;
       let attempt = 0;
 
       while (true) {
         attempt += 1;
         if (signal.aborted) throw makeAbortError('coding');
 
+        // Resumed sessions get the preamble prepended on the first turn of
+        // this run. Whichever of instruction/followUp the adapter will use
+        // as the prompt is the one we wrap.
+        let turnInstruction = baseInstruction;
+        let turnFollowUp = followUp;
+        if (attempt === 1 && resumePreamble) {
+          if (turnFollowUp) {
+            turnFollowUp = `${resumePreamble}\n\n---\n\n${turnFollowUp}`;
+          } else {
+            turnInstruction = `${resumePreamble}\n\n---\n\n${turnInstruction}`;
+          }
+        }
+
         const result = await this.config.coder.run(
           {
-            instruction,
+            instruction: turnInstruction,
             priorSessionId: sessionId,
-            ...(followUp ? { followUp } : {}),
+            ...(turnFollowUp ? { followUp: turnFollowUp } : {}),
           },
           {
             nodeId,
@@ -334,6 +381,16 @@ export class Orchestrator {
         );
 
         if (result.sessionId) sessionId = result.sessionId;
+        // Single-use: subsequent iterations in this loop are driven by
+        // post-coder check failures, not by the artist's original reply.
+        followUp = undefined;
+
+        // If the coder dropped MESSAGE.md with producedArtifact=false it is
+        // explicitly opting out of producing a render — there's nothing for
+        // post-coder checks to validate. Break the loop so we go straight
+        // to commit + persist + skip render.
+        const earlyMessage = readCoderMessage(workdir);
+        if (earlyMessage && !earlyMessage.producedArtifact) break;
 
         if (checks.length === 0) break;
 
@@ -419,6 +476,30 @@ export class Orchestrator {
       runId,
       runsDir: path.join(this.paths.runsDir, canvasSlug),
     });
+
+    // Coder may have dropped MESSAGE.md to talk back to the artist. Persist
+    // it now so it surfaces regardless of whether we go on to render.
+    const workdirForMessage = this.workspace.workspacePath({
+      nodeId: anchorId,
+      canvasSlug,
+    });
+    const message = readCoderMessage(workdirForMessage);
+    if (message) {
+      this.db
+        .update(schema.runs)
+        .set({ message, updatedAt: Date.now() })
+        .where(eq(schema.runs.id, runId))
+        .run();
+    }
+
+    // producedArtifact=false short-circuits the render + critic-spawn flow:
+    // the message itself is the run's terminal output. Combo case
+    // (producedArtifact=true) renders normally; the message is just a note
+    // alongside the video.
+    if (message && !message.producedArtifact) {
+      this.setRunStatus(runId, nodeId, 'done', {});
+      return;
+    }
 
     // Rendering phase.
     await this.runPhase(runId, nodeId, node.canvasId, 'rendering', signal, async () => {
@@ -706,6 +787,30 @@ export class Orchestrator {
       .set({ status, updatedAt: now })
       .where(eq(schema.nodes.id, nodeId))
       .run();
+
+    // Tell live subscribers we just landed at a terminal status. Without
+    // this the UI can be stuck on the last phase_end it saw — particularly
+    // for message-only coder runs that skip the rendering phase (no
+    // phase_start rendering ever fires to nudge a refetch). Look the
+    // canvas up here so callers don't have to thread it through.
+    if (
+      status === 'done' ||
+      status === 'failed' ||
+      status === 'cancelled' ||
+      status === 'interrupted'
+    ) {
+      const canvasRow = this.db
+        .select({ canvasId: schema.nodes.canvasId })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, nodeId))
+        .get();
+      if (canvasRow) {
+        this.eventBus.publish(runId, canvasRow.canvasId, {
+          kind: 'run_finalized',
+          status,
+        });
+      }
+    }
   }
 
   /**
@@ -746,6 +851,15 @@ export class Orchestrator {
       }
     }
     return null;
+  }
+
+  private readArtistFollowUp(runId: string): string | null {
+    const row = this.db
+      .select({ artistFollowUp: schema.runs.artistFollowUp })
+      .from(schema.runs)
+      .where(eq(schema.runs.id, runId))
+      .get();
+    return row?.artistFollowUp ?? null;
   }
 
   private recordArtifact(
@@ -869,15 +983,33 @@ function toRunError(err: unknown): RunError {
   return { phase: 'startup', message: String(err) };
 }
 
-function prependLessons(instruction: string, lessonsFile: string): string {
-  let body: string;
+/**
+ * Assemble the instruction for a fresh coder session:
+ *
+ *   GAIDO PROTOCOL: (framework-level)
+ *   PROJECT RULES:  (LESSONS.md contents, if any)
+ *   <artist instruction>
+ *
+ * Most-general → most-specific. Only called when starting a brand-new
+ * session — project rules are skipped on resumed sessions because they
+ * could be long and were already seen on turn 1. The framework preamble
+ * is handled separately by the orchestrator's run loop so it can also
+ * reach resumed sessions (cheap to re-send and self-heals legacy sessions
+ * that predate the protocol).
+ */
+function composeFreshSessionInstruction(instruction: string, lessonsFile: string): string {
+  const sections: string[] = [GAIDO_PROTOCOL_PREAMBLE];
+  let lessons = '';
   try {
-    body = fs.readFileSync(lessonsFile, 'utf8').trim();
+    lessons = fs.readFileSync(lessonsFile, 'utf8').trim();
   } catch {
-    return instruction;
+    // file may not exist yet — that's fine, just skip the project-rules block
   }
-  if (!body) return instruction;
-  return `PROJECT RULES (apply to every render in this project):\n\n${body}\n\n---\n\n${instruction}`;
+  if (lessons) {
+    sections.push(`PROJECT RULES (apply to every render in this project):\n\n${lessons}`);
+  }
+  sections.push(instruction);
+  return sections.join('\n\n---\n\n');
 }
 
 function makeLogger(prefix: string): Logger {

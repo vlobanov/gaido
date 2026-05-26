@@ -1,6 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { EventPayload, NodeStatus, PersistedEvent } from '@gaido/core';
+import type {
+  CoderMessage,
+  EventPayload,
+  NodeStatus,
+  PersistedEvent,
+} from '@gaido/core';
 import {
   StatusBadge,
   activePhase,
@@ -19,6 +24,13 @@ export interface CoderCardData extends PhaseTiming {
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
   previewUrl: string | null;
+  /**
+   * Coder's MESSAGE.md output, if any. Present iff the current run carried
+   * a message back to the artist. When `producedArtifact` is false the card
+   * drops the frame entirely and renders as a text-only conversation turn —
+   * there's nothing visual to show.
+   */
+  message: CoderMessage | null;
   selected: boolean;
   [key: string]: unknown;
 }
@@ -45,6 +57,25 @@ function CoderCardComponent({ data, selected }: NodeProps) {
     : active
       ? 'border-hairline animate-breathe-edge'
       : 'border-hairline hover:border-hairline-deep';
+
+  // Message-only runs (the coder replied via MESSAGE.md without producing a
+  // render) drop the frame square — there's no artifact to show, so the
+  // card collapses to a text-only conversation turn. Active retries fall
+  // back to the regular layout (LiveFrame teletype) because the next run's
+  // own message hasn't landed yet.
+  const messageOnly = d.message != null && !d.message.producedArtifact && !active;
+  if (messageOnly) {
+    return (
+      <MessageOnlyCard
+        data={d}
+        selected={selected}
+        borderCls={borderCls}
+        onToggleFavorite={() =>
+          setFavorite.mutate({ nodeId: d.id, isFavorite: !d.isFavorite })
+        }
+      />
+    );
+  }
 
   return (
     <div
@@ -99,6 +130,86 @@ function CoderCardComponent({ data, selected }: NodeProps) {
             }
           />
         </div>
+      </div>
+
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+const MESSAGE_KIND_LABEL: Record<CoderMessage['kind'], string> = {
+  question: 'Question',
+  limitation: 'Limitation',
+  note: 'Note',
+};
+
+const MESSAGE_KIND_GLYPH: Record<CoderMessage['kind'], string> = {
+  question: '?',
+  limitation: '!',
+  note: '·',
+};
+
+function MessageOnlyCard({
+  data: d,
+  borderCls,
+  onToggleFavorite,
+}: {
+  data: CoderCardData;
+  selected: boolean;
+  borderCls: string;
+  onToggleFavorite: () => void;
+}) {
+  const message = d.message!;
+  return (
+    <div
+      data-testid="node-card"
+      data-node-id={d.id}
+      data-node-kind="coder"
+      data-node-variant="message-only"
+      data-status={d.status}
+      data-favorite={String(d.isFavorite)}
+      className={`group w-64 border bg-paper transition-colors ${borderCls}`}
+    >
+      <Handle type="target" position={Position.Top} />
+
+      <div className="flex flex-col gap-2 px-4 py-3">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+          <span className="inline-flex h-4 w-4 items-center justify-center border border-hairline-deep bg-paper-deep text-[11px] text-ink">
+            {MESSAGE_KIND_GLYPH[message.kind]}
+          </span>
+          <span>{MESSAGE_KIND_LABEL[message.kind]}</span>
+        </div>
+        {d.instruction ? (
+          <p
+            className="font-serif text-xs italic leading-snug text-ink-muted"
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+            title={d.instruction}
+          >
+            {d.instruction}
+          </p>
+        ) : null}
+        <p
+          className="whitespace-pre-wrap font-serif text-sm leading-snug text-ink"
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 6,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+          title={message.body}
+        >
+          {message.body}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
+        <StatusBadge status={d.status} kind="coder" timing={d} />
+        <FavoriteToggle isFavorite={d.isFavorite} onToggle={onToggleFavorite} />
       </div>
 
       <Handle type="source" position={Position.Bottom} />
@@ -251,6 +362,7 @@ const PHASE_MARK: Record<'coding' | 'rendering' | 'critiquing', string> = {
 };
 
 function LiveFrame({ runId }: { runId: string }) {
+  const utils = trpc.useUtils();
   const [items, setItems] = useState<LiveItem[]>([]);
   const counterRef = useRef(0);
   // Hydration plumbing: subscription frames arriving before history loads
@@ -333,6 +445,13 @@ function LiveFrame({ runId }: { runId: string }) {
         const payload = event.payload;
         // token_usage already drives the live counter in the sidebar.
         if (payload.kind === 'token_usage') return;
+        // run_finalized is a pure refresh signal — nudge nodes.list so the
+        // card transitions out of the live frame to whatever terminal state
+        // the orchestrator just persisted. Nothing to render.
+        if (payload.kind === 'run_finalized') {
+          void utils.nodes.list.invalidate();
+          return;
+        }
         if (!hydratedRef.current) {
           bufferRef.current.push(event);
           return;

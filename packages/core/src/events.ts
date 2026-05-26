@@ -1,4 +1,4 @@
-import type { RunPhase } from './types.js';
+import type { RunPhase, RunStatus } from './types.js';
 
 export type EventKind =
   | 'phase_start'
@@ -9,7 +9,8 @@ export type EventKind =
   | 'render_progress'
   | 'check_attempt'
   | 'log'
-  | 'error';
+  | 'error'
+  | 'run_finalized';
 
 export type EventPayload =
   | { kind: 'phase_start'; phase: RunPhase }
@@ -47,7 +48,18 @@ export type EventPayload =
       output?: string;
     }
   | { kind: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
-  | { kind: 'error'; phase?: RunPhase; message: string };
+  | { kind: 'error'; phase?: RunPhase; message: string }
+  /**
+   * Emitted by the orchestrator immediately after persisting a terminal run
+   * status (done/failed/cancelled/interrupted) and any associated node row
+   * update. Pure UI signal — exists so subscribers can refetch one final
+   * time after the DB writes that don't naturally produce another event
+   * (e.g., message-only runs that skip the rendering phase).
+   *
+   * No payload data beyond the new status — the UI is expected to refetch
+   * nodes/runs to read the canonical state.
+   */
+  | { kind: 'run_finalized'; status: RunStatus };
 
 export interface PersistedEvent {
   id: string;

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { EventPayload, NodeKind, NodeStatus } from '@gaido/core';
+import type {
+  CoderMessage,
+  CoderMessageKind,
+  EventPayload,
+  NodeKind,
+  NodeStatus,
+} from '@gaido/core';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
@@ -61,8 +67,21 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
 
   const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
   const nodesList = trpc.nodes.list.useQuery();
+  const runsList = trpc.runs.listByNode.useQuery({ nodeId });
   const node = nodeQuery.data?.node;
   const currentRun = nodeQuery.data?.currentRun;
+
+  // Chronological list of runs with any conversation content (artist reply
+  // or coder MESSAGE.md). Used to render the thread; absent → fall back to
+  // the simple Instruction section.
+  const thread = useMemo(() => {
+    const rows = runsList.data ?? [];
+    return rows
+      .slice()
+      .reverse() // listByNode returns newest-first
+      .filter((r) => r.message != null || r.artistFollowUp != null);
+  }, [runsList.data]);
+  const hasThread = thread.length > 0;
 
   const critiqueChild = useMemo(() => {
     if (!nodesList.data) return null;
@@ -83,6 +102,7 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
     onSuccess: () => {
       utils.nodes.get.invalidate({ nodeId });
       utils.nodes.list.invalidate();
+      utils.runs.listByNode.invalidate({ nodeId });
     },
   });
   const deleteNode = trpc.nodes.delete.useMutation({
@@ -95,6 +115,7 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
   const refreshNodeState = () => {
     utils.nodes.get.invalidate({ nodeId });
     utils.nodes.list.invalidate();
+    utils.runs.listByNode.invalidate({ nodeId });
   };
 
   // Reset live token counter whenever we switch runs.
@@ -135,17 +156,27 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           />
         </div>
 
-        <Section label="Instruction">
-          {node.instruction ? (
-            <p className="whitespace-pre-wrap font-serif text-base leading-snug text-ink">
-              {node.instruction}
-            </p>
-          ) : (
-            <p className="font-serif text-base italic text-ink-faint">
-              no instruction
-            </p>
-          )}
-        </Section>
+        {hasThread ? (
+          <ConversationThread
+            nodeId={nodeId}
+            initialInstruction={node.instruction}
+            entries={thread}
+            sessionLive={nodeQuery.data?.hasSession ?? false}
+            canReply={status !== 'running'}
+          />
+        ) : (
+          <Section label="Instruction">
+            {node.instruction ? (
+              <p className="whitespace-pre-wrap font-serif text-base leading-snug text-ink">
+                {node.instruction}
+              </p>
+            ) : (
+              <p className="font-serif text-base italic text-ink-faint">
+                no instruction
+              </p>
+            )}
+          </Section>
+        )}
 
         <RunDetails kind="coder" runId={node.currentRunId ?? null} />
 
@@ -159,13 +190,15 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           </Section>
         ) : null}
 
-        <Section label="Output">
-          <OutputPanel
-            videoArtifactId={currentRun?.videoArtifactId ?? null}
-            thumbnailArtifactId={currentRun?.thumbnailArtifactId ?? null}
-            previewUrl={currentRun?.previewUrl ?? null}
-          />
-        </Section>
+        {currentRun?.message && !currentRun.message.producedArtifact ? null : (
+          <Section label="Output">
+            <OutputPanel
+              videoArtifactId={currentRun?.videoArtifactId ?? null}
+              thumbnailArtifactId={currentRun?.thumbnailArtifactId ?? null}
+              previewUrl={currentRun?.previewUrl ?? null}
+            />
+          </Section>
+        )}
 
         <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
           <button
@@ -227,6 +260,144 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
         />
       ) : null}
     </SidebarShell>
+  );
+}
+
+interface ThreadEntry {
+  id: string;
+  createdAt: number;
+  artistFollowUp: string | null;
+  message: CoderMessage | null;
+}
+
+function ConversationThread({
+  nodeId,
+  initialInstruction,
+  entries,
+  sessionLive,
+  canReply,
+}: {
+  nodeId: string;
+  initialInstruction: string;
+  entries: ThreadEntry[];
+  sessionLive: boolean;
+  canReply: boolean;
+}) {
+  const utils = trpc.useUtils();
+  const [draft, setDraft] = useState('');
+  const reply = trpc.nodes.reply.useMutation({
+    onSuccess: () => {
+      setDraft('');
+      utils.nodes.get.invalidate({ nodeId });
+      utils.nodes.list.invalidate();
+      utils.runs.listByNode.invalidate({ nodeId });
+    },
+  });
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    reply.mutate({ nodeId, text });
+  };
+
+  return (
+    <Section label="Conversation">
+      <div data-testid="conversation-thread" className="flex flex-col gap-4">
+        <ArtistTurn text={initialInstruction} isInitial />
+        {entries.map((entry) => (
+          <div key={entry.id} className="flex flex-col gap-4">
+            {entry.artistFollowUp ? (
+              <ArtistTurn text={entry.artistFollowUp} />
+            ) : null}
+            {entry.message ? <CoderTurn message={entry.message} /> : null}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 pt-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          disabled={!canReply || !sessionLive || reply.isPending}
+          placeholder={
+            !sessionLive
+              ? 'Reply once the first run finishes…'
+              : !canReply
+                ? 'Wait for the current run to finish…'
+                : 'Reply to the coder…'
+          }
+          data-testid="conversation-reply"
+          className="w-full resize-y border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep disabled:opacity-50"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={
+              !canReply || !sessionLive || reply.isPending || !draft.trim()
+            }
+            data-testid="conversation-reply-submit"
+            className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+          >
+            {reply.isPending ? 'Sending…' : 'Send reply'}
+          </button>
+          {reply.error ? (
+            <span className="font-mono text-xs text-sanguine">
+              {reply.error.message}
+            </span>
+          ) : null}
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function ArtistTurn({ text, isInitial }: { text: string; isInitial?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="thread-turn-artist">
+      <span className="font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+        {isInitial ? 'You · initial ask' : 'You'}
+      </span>
+      <p className="whitespace-pre-wrap font-serif text-base leading-snug text-ink">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<CoderMessageKind, string> = {
+  question: 'Question',
+  limitation: 'Limitation',
+  note: 'Note',
+};
+
+const KIND_GLYPH: Record<CoderMessageKind, string> = {
+  question: '?',
+  limitation: '!',
+  note: '·',
+};
+
+function CoderTurn({ message }: { message: CoderMessage }) {
+  return (
+    <div
+      className="flex flex-col gap-1.5"
+      data-testid="thread-turn-coder"
+      data-coder-kind={message.kind}
+    >
+      <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+        <span className="inline-flex h-4 w-4 items-center justify-center border border-hairline-deep bg-paper text-[11px] text-ink">
+          {KIND_GLYPH[message.kind]}
+        </span>
+        <span>Coder · {KIND_LABEL[message.kind]}</span>
+        {message.producedArtifact ? (
+          <span className="text-ink-faint">+ render</span>
+        ) : null}
+      </span>
+      <p className="whitespace-pre-wrap border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink">
+        {message.body}
+      </p>
+    </div>
   );
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `artist_follow_up` text;
