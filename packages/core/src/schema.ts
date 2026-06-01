@@ -90,11 +90,12 @@ export const runs = sqliteTable(
      */
     message: text('message', { mode: 'json' }).$type<CoderMessage>(),
     /**
-     * Artist's reply that triggered this run, when the run was kicked off
-     * from the message thread (not from create/retry/continue). Used in the
-     * UI thread to render the artist's side of the conversation alongside
-     * the coder's MESSAGE.md outputs. Also passed to the coder adapter as
-     * the next turn in the resumed session.
+     * Artist-typed text that triggered this run: either a reply from the
+     * message thread or a prompt supplied with Retry. (Plain create/continue
+     * runs leave it null.) Used in the UI thread to render the artist's side
+     * of the conversation alongside the coder's MESSAGE.md outputs. Also fed
+     * to the coder adapter — as the next turn on a resumed session, or folded
+     * into the composed instruction on a fresh one.
      */
     artistFollowUp: text('artist_follow_up'),
     costUsd: real('cost_usd'),

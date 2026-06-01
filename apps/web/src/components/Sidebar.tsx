@@ -60,6 +60,7 @@ type TokenUsage = Extract<EventPayload, { kind: 'token_usage' }>;
 
 function CoderSidebar({ nodeId }: { nodeId: string }) {
   const [forkOpen, setForkOpen] = useState(false);
+  const [retryOpen, setRetryOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tokens, setTokens] = useState<TokenUsage | null>(null);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
@@ -96,13 +97,6 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
     onSuccess: () => {
       utils.nodes.get.invalidate({ nodeId });
       utils.nodes.list.invalidate();
-    },
-  });
-  const retryNode = trpc.nodes.retry.useMutation({
-    onSuccess: () => {
-      utils.nodes.get.invalidate({ nodeId });
-      utils.nodes.list.invalidate();
-      utils.runs.listByNode.invalidate({ nodeId });
     },
   });
   const deleteNode = trpc.nodes.delete.useMutation({
@@ -213,8 +207,8 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           </button>
           <button
             type="button"
-            disabled={!canRetry || retryNode.isPending}
-            onClick={() => retryNode.mutate({ nodeId })}
+            disabled={!canRetry}
+            onClick={() => setRetryOpen(true)}
             data-testid="sidebar-retry"
             title={retryTooltip}
             className="border border-hairline bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
@@ -230,10 +224,6 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             Delete
           </button>
         </div>
-
-        {retryNode.error ? (
-          <p className="font-mono text-xs text-sanguine">{retryNode.error.message}</p>
-        ) : null}
       </div>
 
       {forkOpen && critiqueChild ? (
@@ -244,6 +234,18 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             utils.nodes.list.invalidate();
             setSelectedNodeId(newId);
             setForkOpen(false);
+          }}
+        />
+      ) : null}
+
+      {retryOpen ? (
+        <RetryModal
+          nodeId={nodeId}
+          failed={status === 'failed'}
+          onClose={() => setRetryOpen(false)}
+          onRetried={() => {
+            refreshNodeState();
+            setRetryOpen(false);
           }}
         />
       ) : null}
@@ -1081,6 +1083,92 @@ function ForkModal({
             className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40"
           >
             {createChild.isPending ? 'Forking...' : 'Fork'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RetryModal({
+  nodeId,
+  failed,
+  onClose,
+  onRetried,
+}: {
+  nodeId: string;
+  failed: boolean;
+  onClose: () => void;
+  onRetried: () => void;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const retry = trpc.nodes.retry.useMutation({
+    onSuccess: () => onRetried(),
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (retry.isPending) return;
+    const trimmed = prompt.trim();
+    retry.mutate({ nodeId, prompt: trimmed || undefined });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="retry-form"
+        className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
+      >
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-xl text-ink">Retry run</h3>
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+            New attempt
+          </span>
+        </div>
+        <label
+          htmlFor="retry-input"
+          className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+        >
+          {failed ? 'The last run failed — what should change?' : 'Steer this attempt'}
+        </label>
+        <textarea
+          id="retry-input"
+          autoFocus
+          rows={3}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Fix the type=module attribute and slow the intro"
+          data-testid="retry-input"
+          className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+        />
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-caps text-ink-faint">
+          Optional — leave blank to re-run as-is
+        </p>
+        {retry.error ? (
+          <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
+            {retry.error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={retry.isPending}
+            data-testid="retry-submit"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40"
+          >
+            {retry.isPending ? 'Starting...' : 'Retry'}
           </button>
         </div>
       </form>

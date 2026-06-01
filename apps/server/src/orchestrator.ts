@@ -317,29 +317,41 @@ export class Orchestrator {
       // the prior turn's open question in git history.
       fs.rmSync(path.join(workdir, MESSAGE_FILENAME), { force: true });
 
+      // Artist-typed text attached to this run: a reply in the message
+      // thread or a prompt supplied with Retry. On a resumed session it's
+      // the next turn (seeded into `followUp` below); on a fresh session
+      // it's folded into the composed instruction, because the adapter
+      // substitutes `followUp` for the prompt and a fresh run would lose the
+      // framework preamble + instruction otherwise.
+      const artistFollowUp = this.readArtistFollowUp(runId);
+
       // Base instruction the coder will see this run. On a fresh session we
-      // compose preamble + project rules + artist instruction; on a resumed
-      // session we send the bare instruction (rules already in conversation
-      // history from turn 1). The framework preamble is handled separately
-      // below — it's prepended on the first turn of EVERY run, fresh or
-      // resumed, so the coder always starts with the protocol in scope even
-      // when continuing a pre-existing session.
+      // compose preamble + project rules + artist instruction (+ retry
+      // guidance, if any); on a resumed session we send the bare instruction
+      // (rules already in conversation history from turn 1). The framework
+      // preamble is handled separately below — it's prepended on the first
+      // turn of EVERY run, fresh or resumed, so the coder always starts with
+      // the protocol in scope even when continuing a pre-existing session.
       const baseInstruction = sessionId
         ? node.instruction
-        : composeFreshSessionInstruction(node.instruction, this.paths.lessonsFile);
+        : composeFreshSessionInstruction(
+            node.instruction,
+            this.paths.lessonsFile,
+            artistFollowUp
+          );
       // On resumed sessions, composeFreshSessionInstruction didn't run so the
       // preamble is missing from the prompt. We splice it in on the first
       // iteration only (subsequent iterations are driven by check failures
       // and the model already saw the preamble this turn).
       const resumePreamble = sessionId ? GAIDO_PROTOCOL_PREAMBLE : null;
 
-      // Seed the loop's `followUp` from the artist's reply if any. Only
-      // meaningful on resumed sessions — the adapter substitutes followUp
-      // for the prompt, so a fresh run with a followUp would silently lose
-      // the framework preamble + instruction. The tRPC `reply` mutation
-      // rejects that case before getting here, but we belt-and-braces.
-      const artistReply = sessionId ? this.readArtistFollowUp(runId) : null;
-      let followUp: string | undefined = artistReply ?? undefined;
+      // Seed the loop's `followUp` from the artist's text. Only meaningful on
+      // resumed sessions — on a fresh session it's already folded into
+      // baseInstruction above (passing it as a bare followUp would make the
+      // adapter drop the framework preamble + instruction).
+      let followUp: string | undefined = sessionId
+        ? artistFollowUp ?? undefined
+        : undefined;
       let attempt = 0;
 
       while (true) {
@@ -986,9 +998,10 @@ function toRunError(err: unknown): RunError {
 /**
  * Assemble the instruction for a fresh coder session:
  *
- *   GAIDO PROTOCOL: (framework-level)
- *   PROJECT RULES:  (LESSONS.md contents, if any)
+ *   GAIDO PROTOCOL:  (framework-level)
+ *   PROJECT RULES:   (LESSONS.md contents, if any)
  *   <artist instruction>
+ *   RETRY GUIDANCE:  (artist's Retry prompt, if any)
  *
  * Most-general → most-specific. Only called when starting a brand-new
  * session — project rules are skipped on resumed sessions because they
@@ -996,8 +1009,16 @@ function toRunError(err: unknown): RunError {
  * is handled separately by the orchestrator's run loop so it can also
  * reach resumed sessions (cheap to re-send and self-heals legacy sessions
  * that predate the protocol).
+ *
+ * `retryPrompt` is the artist's text from a Retry-with-prompt. On a resumed
+ * session that text rides as the next turn instead, so this param is only
+ * populated when retrying a node whose prior attempt never reached a session.
  */
-function composeFreshSessionInstruction(instruction: string, lessonsFile: string): string {
+function composeFreshSessionInstruction(
+  instruction: string,
+  lessonsFile: string,
+  retryPrompt?: string | null
+): string {
   const sections: string[] = [GAIDO_PROTOCOL_PREAMBLE];
   let lessons = '';
   try {
@@ -1009,6 +1030,10 @@ function composeFreshSessionInstruction(instruction: string, lessonsFile: string
     sections.push(`PROJECT RULES (apply to every render in this project):\n\n${lessons}`);
   }
   sections.push(instruction);
+  const retry = retryPrompt?.trim();
+  if (retry) {
+    sections.push(`RETRY GUIDANCE (apply this on top of the instruction above):\n\n${retry}`);
+  }
   return sections.join('\n\n---\n\n');
 }
 

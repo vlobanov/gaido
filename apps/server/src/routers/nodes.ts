@@ -267,7 +267,7 @@ export const nodesRouter = router({
     }),
 
   retry: publicProcedure
-    .input(z.object({ nodeId: z.string() }))
+    .input(z.object({ nodeId: z.string(), prompt: z.string().optional() }))
     .mutation(({ ctx, input }) => {
       const node = ctx.db
         .select()
@@ -293,9 +293,20 @@ export const nodesRouter = router({
             'this coder has continued descendants on its branch — continue or fork instead of retry',
         });
       }
+      // An optional `prompt` lets the artist steer the re-run — e.g. after a
+      // failure. It's carried as the run's `artistFollowUp`: on a coder with
+      // a live session it lands as the next turn; on a fresh session the
+      // orchestrator folds it into the composed instruction. Critique nodes
+      // have no path to feed it to the critic, so it's ignored there (the UI
+      // only offers the prompt on coder retries). Empty/whitespace → a plain
+      // retry, identical to the prior behavior.
+      const prompt = input.prompt?.trim();
       // If a run is in flight, abort it before queuing the next one.
       ctx.orchestrator.cancel(node.id);
-      return ctx.orchestrator.startRun(node.id);
+      return ctx.orchestrator.startRun(
+        node.id,
+        prompt ? { artistFollowUp: prompt } : undefined
+      );
     }),
 
   /**

@@ -37,7 +37,8 @@ export interface GaidoDebug {
     /** Start the first run for an idle critique node (or retry a terminal one). */
     runCritique(critiqueNodeId: string): Promise<unknown>;
     select(nodeId: string | null): void;
-    retry(nodeId: string): Promise<unknown>;
+    /** Retry a node; `prompt` (coder nodes only) is injected into the re-run. */
+    retry(nodeId: string, prompt?: string): Promise<unknown>;
     cancel(nodeId: string): Promise<unknown>;
     delete(nodeId: string): Promise<unknown>;
   };
@@ -234,8 +235,8 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         select(nodeId: string | null) {
           useUiStore.getState().setSelectedNodeId(nodeId);
         },
-        async retry(nodeId: string) {
-          const result = await retry.mutateAsync({ nodeId });
+        async retry(nodeId: string, prompt?: string) {
+          const result = await retry.mutateAsync({ nodeId, prompt });
           await utils.nodes.list.invalidate();
           return result;
         },
