@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import { trpc } from '../lib/trpc';
+import {
+  ReferenceDraftField,
+  toReferenceInput,
+  type DraftReference,
+} from './ReferenceAttacher';
 
 interface CanvasSummary {
   id: string;
@@ -50,6 +55,7 @@ interface CreateRootModalProps {
 export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [instruction, setInstruction] = useState('');
   const [skeletonName, setSkeletonName] = useState<string | null>(null);
+  const [references, setReferences] = useState<DraftReference[]>([]);
   const utils = trpc.useUtils();
   const skeletons = trpc.skeletons.list.useQuery();
   const createRoot = trpc.nodes.createRoot.useMutation({
@@ -74,6 +80,7 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
       instruction: trimmed,
       canvasId: canvas.id,
       ...(resolvedSkeleton ? { skeletonName: resolvedSkeleton } : {}),
+      ...(references.length ? { references: references.map(toReferenceInput) } : {}),
     });
   };
 
@@ -140,6 +147,12 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
           data-testid="create-root-input"
           className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
         />
+        <div className="mt-4">
+          <span className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted">
+            References <span className="text-ink-faint">· optional</span>
+          </span>
+          <ReferenceDraftField value={references} onChange={setReferences} />
+        </div>
         {createRoot.error ? (
           <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
             {createRoot.error.message}

@@ -11,6 +11,12 @@ import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
 import { StatusBadge, isActiveStatus } from './StatusBadge';
 import { EventStream } from './EventStream';
+import {
+  ReferenceDraftField,
+  BoundReferences,
+  toReferenceInput,
+  type DraftReference,
+} from './ReferenceAttacher';
 
 interface SidebarProps {
   nodeId: string;
@@ -193,6 +199,8 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             />
           </Section>
         )}
+
+        <BoundReferences nodeId={nodeId} />
 
         <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
           <button
@@ -953,7 +961,7 @@ function RunDetails({
         ) : (
           <Timestamp label="Critiquing" started={run.critiquingStartedAt} finished={run.critiquingFinishedAt} />
         )}
-        <div className="pt-1 text-ink-faint">id · {runId}</div>
+        <CopyableRunId runId={runId} />
       </div>
 
       {run.error ? (
@@ -977,6 +985,33 @@ function RunDetails({
         </div>
       ) : null}
     </Section>
+  );
+}
+
+function CopyableRunId({ runId }: { runId: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(runId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked (e.g. insecure context) — selection still works
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      data-testid="copy-run-id"
+      title="Copy run id — paste it as a reference on another node"
+      className="group flex items-center gap-2 pt-1 text-left text-ink-faint hover:text-ink-soft"
+    >
+      <span>id · {runId}</span>
+      <span className="font-mono text-[10px] uppercase tracking-caps text-ink-muted opacity-0 transition-opacity group-hover:opacity-100">
+        {copied ? 'copied' : 'copy'}
+      </span>
+    </button>
   );
 }
 
@@ -1019,6 +1054,7 @@ function ForkModal({
   onCreated: (newId: string) => void;
 }) {
   const [tweak, setTweak] = useState('');
+  const [references, setReferences] = useState<DraftReference[]>([]);
   const createChild = trpc.nodes.createChild.useMutation({
     onSuccess: (data) => onCreated(data.node.id),
   });
@@ -1027,7 +1063,11 @@ function ForkModal({
     e.preventDefault();
     const trimmed = tweak.trim();
     if (!trimmed) return;
-    createChild.mutate({ parentId, instruction: trimmed });
+    createChild.mutate({
+      parentId,
+      instruction: trimmed,
+      ...(references.length ? { references: references.map(toReferenceInput) } : {}),
+    });
   };
 
   return (
@@ -1063,6 +1103,12 @@ function ForkModal({
           data-testid="fork-input"
           className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
         />
+        <div className="mt-4">
+          <span className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted">
+            References <span className="text-ink-faint">· inherited + added</span>
+          </span>
+          <ReferenceDraftField value={references} onChange={setReferences} />
+        </div>
         {createChild.error ? (
           <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
             {createChild.error.message}

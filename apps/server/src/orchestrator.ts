@@ -28,6 +28,7 @@ import type { Paths } from './paths.js';
 import type { PreviewServerHandle } from './preview-server.js';
 import { runChecks, formatFollowUp } from './checks.js';
 import { snapshotClaudeSession } from './session-snapshot.js';
+import { materializeReferences } from './references.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
 
 interface OrchestratorDeps {
@@ -317,6 +318,18 @@ export class Orchestrator {
       // the prior turn's open question in git history.
       fs.rmSync(path.join(workdir, MESSAGE_FILENAME), { force: true });
 
+      // Materialize artist references (images + other-run snapshots) into
+      // <workdir>/references/ so the coder can Read them. Done every run so
+      // the folder matches this node's current list — it clears stale entries
+      // first, which matters for continued nodes that share the anchor
+      // worktree. The folder is git-excluded by commitRun, so it never lands
+      // in the branch or in forks.
+      const referencesBlock = materializeReferences(
+        { db: this.db, paths: this.paths },
+        node.id,
+        workdir
+      );
+
       // Artist-typed text attached to this run: a reply in the message
       // thread or a prompt supplied with Retry. On a resumed session it's
       // the next turn (seeded into `followUp` below); on a fresh session
@@ -337,7 +350,8 @@ export class Orchestrator {
         : composeFreshSessionInstruction(
             node.instruction,
             this.paths.lessonsFile,
-            artistFollowUp
+            artistFollowUp,
+            referencesBlock
           );
       // On resumed sessions, composeFreshSessionInstruction didn't run so the
       // preamble is missing from the prompt. We splice it in on the first
@@ -1017,7 +1031,8 @@ function toRunError(err: unknown): RunError {
 function composeFreshSessionInstruction(
   instruction: string,
   lessonsFile: string,
-  retryPrompt?: string | null
+  retryPrompt?: string | null,
+  referencesBlock?: string | null
 ): string {
   const sections: string[] = [GAIDO_PROTOCOL_PREAMBLE];
   let lessons = '';
@@ -1030,6 +1045,12 @@ function composeFreshSessionInstruction(
     sections.push(`PROJECT RULES (apply to every render in this project):\n\n${lessons}`);
   }
   sections.push(instruction);
+  // Artist references sit right after the task — context the coder should
+  // consult while satisfying the instruction. Only present on fresh sessions
+  // (resumed sessions keep the references they saw at turn 1).
+  if (referencesBlock?.trim()) {
+    sections.push(referencesBlock.trim());
+  }
   const retry = retryPrompt?.trim();
   if (retry) {
     sections.push(`RETRY GUIDANCE (apply this on top of the instruction above):\n\n${retry}`);

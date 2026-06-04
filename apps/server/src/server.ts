@@ -84,6 +84,34 @@ export async function createServer(opts: ServerOptions) {
     }
   );
 
+  // Serve an uploaded reference image by reference id (for UI preview /
+  // chips). Run references render off the source run's existing artifacts, so
+  // only image references need a bespoke route.
+  fastify.get<{ Params: { id: string } }>(
+    '/references/:id',
+    async (req, reply) => {
+      const { id } = req.params;
+      const ref = opts.context.db
+        .select()
+        .from(schema.nodeReferences)
+        .where(eq(schema.nodeReferences.id, id))
+        .get();
+      if (!ref || ref.kind !== 'image' || !ref.filePath) {
+        reply.code(404).send({ error: 'reference not found' });
+        return;
+      }
+      if (!existsSync(ref.filePath)) {
+        reply.code(410).send({ error: 'reference file missing on disk' });
+        return;
+      }
+      const stat = statSync(ref.filePath);
+      reply.header('content-type', ref.mime ?? 'application/octet-stream');
+      reply.header('content-length', String(stat.size));
+      reply.header('cache-control', 'public, max-age=31536000, immutable');
+      return reply.send(createReadStream(ref.filePath));
+    }
+  );
+
   if (existsSync(WEB_DIST)) {
     await fastify.register(fastifyStatic, {
       root: WEB_DIST,
@@ -95,7 +123,8 @@ export async function createServer(opts: ServerOptions) {
       if (
         req.url.startsWith('/trpc') ||
         req.url.startsWith('/health') ||
-        req.url.startsWith('/artifacts')
+        req.url.startsWith('/artifacts') ||
+        req.url.startsWith('/references')
       ) {
         reply.code(404).send({ error: 'Not found' });
         return;

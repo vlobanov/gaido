@@ -127,6 +127,36 @@ export const artifacts = sqliteTable(
   })
 );
 
+/**
+ * Artist-provided references attached to a coder node — images (pasted /
+ * dropped) and snapshots of other runs (by run id). Materialized into the
+ * node's worktree under `references/` before each coder run and named in the
+ * fresh-session instruction. Bytes live outside the DB: uploads under
+ * `runs/.references/uploads/`, run snapshots cached under
+ * `runs/.references/cache/`. Rows are copied (not shared) when a fork/continue
+ * inherits its ancestor coder's references, so removal on a child is local.
+ */
+export const nodeReferences = sqliteTable(
+  'node_references',
+  {
+    id: text('id').primaryKey(),
+    nodeId: text('node_id').notNull(),
+    kind: text('kind').$type<'image' | 'run'>().notNull(),
+    /** kind='run': the source run this points at (its commit + video). */
+    sourceRunId: text('source_run_id'),
+    /** kind='image': absolute path to the uploaded file on disk. */
+    filePath: text('file_path'),
+    /** kind='image': mime type of the uploaded file. */
+    mime: text('mime'),
+    /** Human label snapshot — shown in the UI and in the coder's prompt. */
+    label: text('label').notNull(),
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => ({
+    nodeIdx: index('node_references_node_idx').on(table.nodeId),
+  })
+);
+
 export const events = sqliteTable(
   'events',
   {
@@ -150,3 +180,6 @@ export type DbEvent = typeof events.$inferSelect;
 export type NewDbEvent = typeof events.$inferInsert;
 export type Canvas = typeof canvases.$inferSelect;
 export type NewCanvas = typeof canvases.$inferInsert;
+export type NodeReference = typeof nodeReferences.$inferSelect;
+export type NewNodeReference = typeof nodeReferences.$inferInsert;
+export type ReferenceKind = NodeReference['kind'];

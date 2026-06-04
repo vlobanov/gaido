@@ -37,3 +37,13 @@ The phase label (`Coding` / `Rendering` / `Critiquing`) is derived in the fronte
 Graph survives; runs restart from parent.
 
 On startup, `recovery.ts` flips any non-terminal run (status `running`) to `interrupted`. Pending critique nodes (status `idle`, no run) are untouched. No mid-run resume in v0; the `Renderer.render` interface accepts a `resumeHint` for adding it later without breaking the contract.
+
+## References
+
+Artist-provided inputs attached to a **coder** node so its agent can use them: pasted/dropped **images** and snapshots of **other runs** (by run id, cross-canvas). Modeled in `node_references` (`apps/server/src/references.ts` owns the lifecycle).
+
+- **Two attach points, both feeding a coder.** Create-root modal (root seed) and the fork modal (the new coder born under a critique — "attach at the critique" resolves to *next coder*). A sidebar panel adds/removes on an already-created coder node.
+- **Copy, never symlink.** A run reference is `git archive`'d from the source commit and its video keyframes are ffmpeg-extracted — both cached once under `runs/.references/` (decoupled from the source's lifecycle; the agent can't write back into another run). Images land in `runs/.references/uploads/`.
+- **Materialize per run.** Before each coder run the orchestrator clears + repopulates `<worktree>/references/` from the node's current list and, on **fresh sessions only**, appends a `REFERENCES:` block naming the paths (same fresh-session rule as `LESSONS.md` — fork to surface references added to a node mid-session).
+- **Git-excluded.** `commitRun` stages with `:(exclude)references`, so references stay out of the node's branch and out of forks — the diff is the art, not the inputs.
+- **Inheritance = row copy.** Fork/continue copies the ancestor coder's reference *rows* (new ids) onto the child, so iteration keeps context and removal on a child is local. See `docs/lessons.md` for the parallel (project-level) rules mechanism.

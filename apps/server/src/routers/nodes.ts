@@ -14,8 +14,55 @@ import {
   nextChildY,
   SIBLING_X_STEP,
 } from '../layout.js';
+import {
+  bindReferences,
+  inheritReferences,
+  deleteReferencesForNodes,
+  referenceInputSchema,
+  type ReferenceDeps,
+} from '../references.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
+
+/**
+ * Best-effort attach of references provided inline with a node-creating
+ * mutation. The node + run go ahead even if a reference fails to bind (a
+ * bad image, a since-deleted run) — the explicit attach mutations surface
+ * those errors instead.
+ */
+async function bindInlineReferences(
+  deps: ReferenceDeps,
+  nodeId: string,
+  refs: z.infer<typeof referenceInputSchema>[] | undefined
+): Promise<void> {
+  if (!refs?.length) return;
+  try {
+    await bindReferences(deps, nodeId, refs);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[references] inline bind failed for ${nodeId}:`, err);
+  }
+}
+
+/** Nearest coder at or above `startParentId`, skipping critiques. */
+function resolveAncestorCoderId(db: Db, startParentId: string | null): string | null {
+  let cursor = startParentId;
+  while (cursor) {
+    const p = db
+      .select({
+        id: schema.nodes.id,
+        kind: schema.nodes.kind,
+        parentId: schema.nodes.parentId,
+      })
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, cursor))
+      .get();
+    if (!p) return null;
+    if (p.kind === 'coder') return p.id;
+    cursor = p.parentId;
+  }
+  return null;
+}
 
 /**
  * A coder node is the "leaf" of its branch when no later-created node
@@ -131,9 +178,10 @@ export const nodesRouter = router({
         position: positionSchema,
         canvasId: z.string().optional(),
         skeletonName: z.string().optional(),
+        references: z.array(referenceInputSchema).optional(),
       })
     )
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       let canvasId = input.canvasId;
       if (!canvasId) {
         const defaultCanvas = ctx.db
@@ -168,6 +216,7 @@ export const nodesRouter = router({
           updatedAt: now,
         })
         .run();
+      await bindInlineReferences(ctx, id, input.references);
       const run = ctx.orchestrator.startRun(id);
       const node = ctx.db
         .select()
@@ -189,9 +238,10 @@ export const nodesRouter = router({
         parentId: z.string(),
         instruction: z.string().min(1),
         position: positionSchema,
+        references: z.array(referenceInputSchema).optional(),
       })
     )
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const parent = ctx.db
         .select()
         .from(schema.nodes)
@@ -257,6 +307,11 @@ export const nodesRouter = router({
           updatedAt: now,
         })
         .run();
+      // Forks inherit the ancestor coder's references, then layer on any the
+      // artist attached in the fork modal.
+      const ancestorCoderId = resolveAncestorCoderId(ctx.db, parent.id);
+      if (ancestorCoderId) inheritReferences(ctx, ancestorCoderId, id);
+      await bindInlineReferences(ctx, id, input.references);
       const run = ctx.orchestrator.startRun(id);
       const node = ctx.db
         .select()
@@ -474,6 +529,10 @@ export const nodesRouter = router({
         })
         .run();
 
+      // Continuing inherits the parent coder's references so iteration keeps
+      // the same context.
+      inheritReferences(ctx, parentCoder.id, id);
+
       const run = ctx.orchestrator.startRun(id);
       const node = ctx.db
         .select()
@@ -677,6 +736,7 @@ export const nodesRouter = router({
           .where(inArray(schema.runs.id, runIds))
           .run();
       }
+      deleteReferencesForNodes(ctx.db, toDelete);
       ctx.db
         .delete(schema.nodes)
         .where(inArray(schema.nodes.id, toDelete))

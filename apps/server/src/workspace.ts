@@ -5,6 +5,9 @@ import path from 'node:path';
 
 const exec = promisify(execFile);
 
+/** Worktree subdir for artist references — excluded from commits. */
+export const REFERENCES_DIRNAME = 'references';
+
 export interface CommitRunArgs {
   nodeId: string;
   canvasSlug: string;
@@ -37,6 +40,13 @@ export interface WorkspacePathArgs {
   canvasSlug: string;
 }
 
+export interface ArchiveCommitArgs {
+  /** Commit SHA (or any tree-ish) in the bare store to extract. */
+  commitSha: string;
+  /** Destination directory; created if missing. Receives the tree contents. */
+  destDir: string;
+}
+
 export interface RemoveNodeArgs {
   nodeId: string;
   canvasSlug: string;
@@ -61,6 +71,12 @@ export interface WorkspaceManager {
    * or null if there were no changes to commit.
    */
   commitRun(args: CommitRunArgs): Promise<string | null>;
+  /**
+   * Extract a commit's tree from the bare store into `destDir` (read-only
+   * snapshot, no working-tree coupling). Used to copy another run's code into
+   * a node's `references/` folder without ever touching the source worktree.
+   */
+  archiveCommit(args: ArchiveCommitArgs): Promise<void>;
   /** Remove worktree + branch. Idempotent. */
   removeNodeWorkspace(args: RemoveNodeArgs): Promise<void>;
 }
@@ -185,12 +201,26 @@ export function createWorkspaceManager(
     if (!fs.existsSync(path.join(wt, '.git'))) {
       throw new Error(`commitRun: worktree missing for ${args.nodeId}`);
     }
-    await gitIn(wt, 'add', '-A');
+    // Exclude `references/` — it holds artist-provided inputs (images, other
+    // runs' code) materialized in for the coder to read. They're context, not
+    // output, so they stay out of the node's branch and out of forks.
+    await gitIn(wt, 'add', '-A', '--', '.', `:(exclude)${REFERENCES_DIRNAME}`);
     const { stdout: staged } = await gitIn(wt, 'diff', '--cached', '--name-only');
     if (staged.trim() === '') return null;
     await gitIn(wt, 'commit', '-m', args.message);
     const { stdout: sha } = await gitIn(wt, 'rev-parse', 'HEAD');
     return sha.trim();
+  };
+
+  const archiveCommit = async (args: ArchiveCommitArgs): Promise<void> => {
+    fs.mkdirSync(args.destDir, { recursive: true });
+    // `git archive` writes the exact tree at the commit — no index, no HEAD
+    // mutation, nothing that could write back into the source. Stage to a tar
+    // then extract, avoiding a shell pipe.
+    const tarPath = path.join(args.destDir, '.gaido-archive.tar');
+    await git('archive', '--format=tar', '-o', tarPath, args.commitSha);
+    await exec('tar', ['-xf', tarPath, '-C', args.destDir]);
+    fs.rmSync(tarPath, { force: true });
   };
 
   const removeNodeWorkspace = async (args: RemoveNodeArgs): Promise<void> => {
@@ -217,6 +247,7 @@ export function createWorkspaceManager(
     initStore,
     ensureNodeWorkspace,
     commitRun,
+    archiveCommit,
     removeNodeWorkspace,
   };
 }

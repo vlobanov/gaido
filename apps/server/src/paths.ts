@@ -11,6 +11,13 @@ export interface Paths {
   projectSkeletonsDir: string;
   lessonsFile: string;
   migrationsDir: string;
+  /**
+   * Artist-provided reference bytes (images + cached run snapshots). Lives
+   * under runs/ so it rides the same gitignore as artifacts. Two children:
+   * `uploads/` (pasted/dropped images) and `cache/run-<runId>/` (a run's
+   * extracted code + keyframes, materialized into worktrees on demand).
+   */
+  referencesDir: string;
 }
 
 export function resolvePaths(cwd: string = process.cwd()): Paths {
@@ -39,5 +46,6 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     // on fresh sessions. File is created lazily on first promotion.
     lessonsFile: path.join(projectDir, 'LESSONS.md'),
     migrationsDir,
+    referencesDir: path.join(runsDir, '.references'),
   };
 }
