@@ -11,6 +11,7 @@ import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
 import { StatusBadge, isActiveStatus } from './StatusBadge';
 import { EventStream } from './EventStream';
+import { Markdown } from './Markdown';
 import {
   ReferenceDraftField,
   BoundReferences,
@@ -404,9 +405,9 @@ function CoderTurn({ message }: { message: CoderMessage }) {
           <span className="text-ink-faint">+ render</span>
         ) : null}
       </span>
-      <p className="whitespace-pre-wrap border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink">
-        {message.body}
-      </p>
+      <div className="border border-hairline bg-paper-deep px-3 py-2">
+        <Markdown className="text-base leading-snug">{message.body}</Markdown>
+      </div>
     </div>
   );
 }

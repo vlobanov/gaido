@@ -14,6 +14,7 @@ import {
 } from './StatusBadge';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
+import { Markdown } from './Markdown';
 
 export interface CoderCardData extends PhaseTiming {
   id: string;
@@ -193,18 +194,9 @@ function MessageOnlyCard({
             {d.instruction}
           </p>
         ) : null}
-        <p
-          className="whitespace-pre-wrap font-serif text-sm leading-snug text-ink"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: 6,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-          title={message.body}
-        >
-          {message.body}
-        </p>
+        <div className="max-h-32 overflow-hidden" title={message.body}>
+          <Markdown className="text-sm leading-snug">{message.body}</Markdown>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
