@@ -199,6 +199,24 @@ export const nodesRouter = router({
       }
       const id = newNodeId();
       const now = Date.now();
+      // Drop the new root on its own lane to the right of everything already
+      // on the canvas — the same left-to-right root stacking layoutCanvasNodes()
+      // produces, but computed incrementally so seeding a root never disturbs
+      // the canvas's existing nodes. `positionX` is each card's left edge and
+      // every card is one column (SIBLING_X_STEP) wide, so `maxX + 2·step`
+      // clears the rightmost card and leaves one empty gap column between
+      // subtrees. Empty canvas → origin. Without this the root defaulted to
+      // x=0 and stacked behind the leftmost existing root.
+      const existing = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.canvasId, canvasId))
+        .all();
+      const positionX =
+        input.position?.x ??
+        (existing.length
+          ? Math.max(...existing.map((n) => n.positionX)) + 2 * SIBLING_X_STEP
+          : 0);
       ctx.db
         .insert(schema.nodes)
         .values({
@@ -206,7 +224,7 @@ export const nodesRouter = router({
           parentId: null,
           canvasId,
           kind: 'coder',
-          positionX: input.position?.x ?? 0,
+          positionX,
           positionY: input.position?.y ?? 0,
           instruction: input.instruction,
           status: 'idle',
