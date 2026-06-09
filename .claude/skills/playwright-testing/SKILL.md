@@ -25,6 +25,7 @@ window.__gaido = {
     runCritique(critiqueNodeId): Promise      // start an idle critique's first run (thin wrapper over retry)
     select(nodeId | null): void
     retry(nodeId): Promise
+    rerunRender(nodeId): Promise           // re-run only the render phase of a coder whose render failed
     cancel(nodeId): Promise
     delete(nodeId): Promise
   }
@@ -46,7 +47,7 @@ Names by component:
 | `EmptyState` | `empty-create-root`, `create-root-form`, `create-root-skeleton` (only when presets are available), `create-root-input`, `create-root-submit`, `create-root-cancel` |
 | `CoderCard` / `CritiqueCard` | `node-card` (with `data-node-id`, `data-node-kind` = `coder`\|`critique`, `data-status`, `data-favorite`), `node-favorite-toggle`, `critique-run` (idle critique's "Run critic" button) |
 | `StatusBadge` | `status-badge` (with `data-status`) |
-| `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel` |
+| `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-rerender` (coder only, when the current run failed during rendering), `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel`, `rerender-error` |
 | `Toolbar` | `toolbar` |
 | `EventStream` | `event-stream`, `event-row` (with `data-event-kind`) |
 
