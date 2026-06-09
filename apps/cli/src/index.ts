@@ -1,4 +1,11 @@
-export { defineConfig, stubCoder, stubCritic, stubRenderer, humanCritic } from '@gaido/core';
+export {
+  defineConfig,
+  defineSkeleton,
+  stubCoder,
+  stubCritic,
+  stubRenderer,
+  humanCritic,
+} from '@gaido/core';
 export { claudeCodeCoder, claudeCodeCritic } from '@gaido/adapter-claude-code';
 export type {
   ClaudeCodeCoderOpts,
@@ -33,4 +40,6 @@ export type {
   RunStatus,
   PreviewServerConfig,
   PostCoderCheck,
+  SkeletonConfig,
+  SkeletonConfigLayer,
 } from '@gaido/core';

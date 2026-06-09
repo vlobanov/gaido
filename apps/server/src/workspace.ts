@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import { SKELETON_CONFIG_FILENAMES } from './skeletons.js';
 
 const exec = promisify(execFile);
 
@@ -152,6 +153,12 @@ export function createWorkspaceManager(
     await exec('git', ['init', '-b', branch, bootstrap], { env: env() });
     if (source && fs.existsSync(source)) {
       copyDirContents(source, bootstrap);
+      // `gaido.skeleton.*` is the skeleton's control-plane overlay (checks /
+      // render / adapters), read live by the orchestrator. It must never be
+      // seeded into a worktree or show up in the art diff — the diff is the art.
+      for (const name of SKELETON_CONFIG_FILENAMES) {
+        fs.rmSync(path.join(bootstrap, name), { force: true });
+      }
     }
     await exec('git', ['-C', bootstrap, 'add', '-A'], { env: env() });
     await exec(

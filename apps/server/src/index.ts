@@ -38,7 +38,7 @@ export async function startServer(
       `[gaido] loaded env from ${env.loaded.join(', ')} (${env.applied} var${env.applied === 1 ? '' : 's'})`
     );
   }
-  const config = await loadConfig(paths.configFile);
+  const { config, raw: rawConfig } = await loadConfig(paths.configFile);
 
   const { db, sqlite } = openDb(paths.dbFile, paths.migrationsDir);
 
@@ -84,6 +84,7 @@ export async function startServer(
     db,
     eventBus,
     config,
+    rawConfig,
     workspace,
     paths,
     previewServer,

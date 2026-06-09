@@ -82,6 +82,88 @@ export function defineConfig(config: GaidoConfig): GaidoConfig {
   return config;
 }
 
+/**
+ * Per-skeleton config overlay — a partial GaidoConfig that layers on top of
+ * the project config for every node that uses the skeleton (the root that
+ * picked it and its whole fork lineage). Dropped at
+ * `skeletons/<name>/gaido.skeleton.ts`, read live by the orchestrator on each
+ * run, and never committed into a worktree (so it stays out of the art diff).
+ *
+ * Merge is Tailwind-style (see {@link applySkeletonOverlay}): a top-level
+ * field REPLACES the project value; a field under `extend` MERGES into it —
+ * the `postCoderChecks` array appends, `render` shallow-merges key-by-key.
+ *
+ * `server` and `concurrency` are process-global (bound once at startup), so
+ * they cannot be set per-skeleton: they're omitted from the type here and
+ * rejected at load time.
+ */
+export type SkeletonConfigLayer = Partial<
+  Omit<GaidoConfig, 'server' | 'concurrency'>
+>;
+
+export interface SkeletonConfig extends SkeletonConfigLayer {
+  /**
+   * Fields here MERGE into the project config instead of replacing it —
+   * `postCoderChecks` appends after the project's checks, `render`
+   * shallow-merges so you can set just `width` and keep the rest.
+   */
+  extend?: SkeletonConfigLayer;
+}
+
+export function defineSkeleton(config: SkeletonConfig): SkeletonConfig {
+  return config;
+}
+
+/** `extend` keys whose array value is appended onto the base array. */
+const SKELETON_EXTEND_APPEND_KEYS: readonly string[] = ['postCoderChecks'];
+/** `extend` keys whose object value shallow-merges (key-by-key) onto the base. */
+const SKELETON_EXTEND_MERGE_KEYS: readonly string[] = ['render'];
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Merge a skeleton overlay onto a base config, Tailwind-style. Pure — returns
+ * a new object and mutates nothing. Top-level overlay fields replace the
+ * base's (`theme`); `extend` fields merge into it (`theme.extend`): arrays
+ * append, `render` shallow-merges, anything else replaces. The result is still
+ * a raw GaidoConfig — run it through the server's `mergeWithDefaults` to fill
+ * any omitted fields from defaults.
+ */
+export function applySkeletonOverlay(
+  base: GaidoConfig,
+  overlay: SkeletonConfig
+): GaidoConfig {
+  const { extend, ...top } = overlay;
+  const out = { ...base } as Record<string, unknown>;
+
+  // Top-level fields replace the project value wholesale.
+  for (const [key, value] of Object.entries(top)) {
+    if (value !== undefined) out[key] = value;
+  }
+
+  // `extend` fields merge into whatever the base/top-level left in place.
+  if (extend) {
+    for (const [key, value] of Object.entries(extend)) {
+      if (value === undefined) continue;
+      const current = out[key];
+      if (SKELETON_EXTEND_APPEND_KEYS.includes(key) && Array.isArray(value)) {
+        out[key] = [...(Array.isArray(current) ? current : []), ...value];
+      } else if (
+        SKELETON_EXTEND_MERGE_KEYS.includes(key) &&
+        isPlainObject(value)
+      ) {
+        out[key] = { ...(isPlainObject(current) ? current : {}), ...value };
+      } else {
+        out[key] = value;
+      }
+    }
+  }
+
+  return out as unknown as GaidoConfig;
+}
+
 export const defaults = {
   concurrency: { agents: 8, renderers: 2 },
   render: { width: 1024, height: 1024, fps: 30, duration: 5 },

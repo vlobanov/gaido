@@ -75,6 +75,30 @@ This file is the coder agent's brief. Keep it short and explicit. Always remind 
 - All assets inline or from a stable CDN. No local file deps.
 - The scene must loop or play out within the configured duration.
 
+### Per-skeleton config overlay (optional)
+
+Drop a `gaido.skeleton.ts` in a skeleton folder to layer config over the project's `gaido.config.ts` for every node that uses that skeleton (the root *and* its forks). Use it when a skeleton produces a specific artifact type that wants its own checks or render dimensions.
+
+```ts
+import { defineSkeleton } from 'gaido';
+
+export default defineSkeleton({
+  extend: {
+    // appended AFTER the project's postCoderChecks
+    postCoderChecks: [{ name: 'has-canvas', command: ['grep', '-q', 'app.canvas', 'index.html'] }],
+    // shallow-merged — keeps the project's fps/duration
+    render: { width: 512, height: 512 },
+  },
+  // a top-level field REPLACES the project value, e.g. a stricter critic here:
+  // critic: myCritic(),
+});
+```
+
+- **Tailwind-style merge:** a top-level field *replaces* the project value; under `extend` it *merges* — `postCoderChecks` appends, `render` shallow-merges. It's a full partial config, adapters included.
+- **Read live, never committed:** excluded from the worktree and the art diff; re-read on every run, so edits land on the next run (no re-seed, no restart). Unlike `LESSONS.md` it isn't fresh-session-gated — it drives orchestration, not the prompt, so retries see it too.
+- **`server` and `concurrency` are rejected** (process-global — set them in `gaido.config.ts`); the loader throws if a config sets them.
+- `gaido init` seeds a commented example in the `default` skeleton.
+
 ## Preview-server-driven renders (advanced)
 
 `playwrightRenderer()` is fine for self-contained `index.html` scenes — it spins up a tiny static server over the workdir and captures frames with a fake clock.
@@ -153,6 +177,7 @@ skeletons/
   <name>/
     CLAUDE.md          conventions for the coder agent
     index.html         seed scene
+    gaido.skeleton.ts  optional; per-skeleton config overlay (excluded from worktrees)
     (any other seed files)
 runs/                  gitignored
   .git/                bare git store; per-skeleton seed/<name> branches, per-node node/<id> branches

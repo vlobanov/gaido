@@ -63,7 +63,17 @@ node_modules/
  */
 export interface SkeletonTemplate {
   description: string;
-  files: { 'index.html': string; 'CLAUDE.md': string };
+  files: {
+    'index.html': string;
+    'CLAUDE.md': string;
+    /**
+     * Optional per-skeleton config overlay. Excluded from the seed commit, so
+     * it never lands in a worktree or the art diff — it's read live by the
+     * orchestrator to layer checks / render params / adapters over the project
+     * config for nodes using this skeleton.
+     */
+    'gaido.skeleton.ts'?: string;
+  };
 }
 
 const pixiIndexHtml = `<!doctype html>
@@ -195,6 +205,44 @@ the file self-contained. You may add additional \`.js\`/\`.css\` files in
 this directory if it helps modularity.
 `;
 
+const skeletonConfigExample = `import { defineSkeleton } from 'gaido';
+
+/**
+ * Per-skeleton config overlay — a Tailwind-style preset for THIS skeleton.
+ *
+ * It layers on top of the project's gaido.config.ts for every node that uses
+ * this skeleton (the root that picks it and its whole fork lineage). Read live
+ * on each run and never committed into a worktree, so editing it takes effect
+ * on the next run — no re-seed, no restart.
+ *
+ * Merge rules:
+ *   - a TOP-LEVEL field REPLACES the project value
+ *   - a field under \`extend\` MERGES in: \`postCoderChecks\` appends after the
+ *     project's checks, \`render\` shallow-merges so you can set just \`width\`
+ *
+ * \`server\` and \`concurrency\` are process-global and rejected here — set them
+ * in gaido.config.ts. Everything goes through this file commented out by
+ * default, so it's a no-op until you uncomment something.
+ */
+export default defineSkeleton({
+  // extend: {
+  //   // Linter-style checks run after the coder finishes. A non-zero exit
+  //   // feeds stdout+stderr back to the coder to fix, up to checkMaxRetries.
+  //   // Use \${GAIDO_WORKDIR} etc. to reference run paths.
+  //   postCoderChecks: [
+  //     { name: 'has-canvas', command: ['grep', '-q', 'app.canvas', 'index.html'] },
+  //   ],
+  //   // Tune just the dimensions this artifact type needs; fps + duration
+  //   // stay whatever gaido.config.ts sets.
+  //   render: { width: 512, height: 512 },
+  // },
+  //
+  // // A top-level field REPLACES the project's. e.g. swap in a stricter critic
+  // // for this skeleton only:
+  // // critic: myStricterCritic(),
+});
+`;
+
 /**
  * Each entry becomes a folder under `<projectDir>/skeletons/<name>/` at init.
  * The `default` entry is the seed for new roots when the user hasn't picked
@@ -203,7 +251,11 @@ this directory if it helps modularity.
 export const skeletonCatalog: Record<string, SkeletonTemplate> = {
   default: {
     description: 'Pixi.js v8 via CDN — procedural / canvas / WebGL animations.',
-    files: { 'index.html': pixiIndexHtml, 'CLAUDE.md': pixiClaudeMd },
+    files: {
+      'index.html': pixiIndexHtml,
+      'CLAUDE.md': pixiClaudeMd,
+      'gaido.skeleton.ts': skeletonConfigExample,
+    },
   },
   css: {
     description: 'Pure DOM/CSS/SVG — kinetic typography, layered effects, transforms.',

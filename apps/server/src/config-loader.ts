@@ -17,7 +17,19 @@ export interface ResolvedConfig {
   server: { port: number; openBrowser: boolean };
 }
 
-export async function loadConfig(configFile: string): Promise<ResolvedConfig> {
+export interface LoadedConfig {
+  /** Fully-resolved config with defaults applied. Used everywhere at runtime. */
+  config: ResolvedConfig;
+  /**
+   * The raw module export, before defaults were applied. Skeleton overlays
+   * merge onto *this* so that a top-level field omitted by the overlay falls
+   * back to the framework defaults rather than the project's resolved value
+   * (Tailwind "top-level replaces"). See `applySkeletonOverlay`.
+   */
+  raw: GaidoConfig;
+}
+
+export async function loadConfig(configFile: string): Promise<LoadedConfig> {
   if (!fs.existsSync(configFile)) {
     // eslint-disable-next-line no-console
     console.error(
@@ -35,7 +47,7 @@ export async function loadConfig(configFile: string): Promise<ResolvedConfig> {
       ? (mod.default as GaidoConfig)
       : (mod as GaidoConfig);
 
-  return mergeWithDefaults(cfg);
+  return { config: mergeWithDefaults(cfg), raw: cfg };
 }
 
 export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {

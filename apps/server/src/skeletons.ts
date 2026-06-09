@@ -19,6 +19,26 @@ export function defaultGlobalSkeletonsDir(): string {
 }
 
 /**
+ * Candidate filenames for a skeleton's config overlay, in resolution order.
+ * Read live by the orchestrator (see `skeleton-config.ts`) and excluded from
+ * the seed commit by the workspace manager so they never reach a worktree.
+ */
+export const SKELETON_CONFIG_FILENAMES = [
+  'gaido.skeleton.ts',
+  'gaido.skeleton.mjs',
+  'gaido.skeleton.js',
+] as const;
+
+/** First existing skeleton-config file in `skeletonDir`, or null if none. */
+export function findSkeletonConfigFile(skeletonDir: string): string | null {
+  for (const name of SKELETON_CONFIG_FILENAMES) {
+    const candidate = path.join(skeletonDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
  * Enumerate skeleton presets. Project entries shadow global on name
  * collision. Hidden dirs (dot-prefix) are ignored.
  */

@@ -5,6 +5,7 @@ import {
   runId as newRunId,
   nodeId as newNodeId,
   artifactId as newArtifactId,
+  applySkeletonOverlay,
   GAIDO_PROTOCOL_PREAMBLE,
   MESSAGE_FILENAME,
 } from '@gaido/core';
@@ -12,6 +13,7 @@ import type { Run, Node } from '@gaido/core/schema';
 import type {
   AdapterConfigSnapshot,
   Critique,
+  GaidoConfig,
   Logger,
   RunPhase,
   RunStatus,
@@ -22,7 +24,8 @@ import { readCoderMessage } from './coder-message.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
-import type { ResolvedConfig } from './config-loader.js';
+import { mergeWithDefaults, type ResolvedConfig } from './config-loader.js';
+import { loadSkeletonConfig } from './skeleton-config.js';
 import type { WorkspaceManager } from './workspace.js';
 import type { Paths } from './paths.js';
 import type { PreviewServerHandle } from './preview-server.js';
@@ -35,6 +38,11 @@ interface OrchestratorDeps {
   db: Db;
   eventBus: EventBus;
   config: ResolvedConfig;
+  /**
+   * The raw project config (pre-defaults). Skeleton overlays merge onto this
+   * before defaults are re-applied — see `effectiveConfigForNode`.
+   */
+  rawConfig: GaidoConfig;
   workspace: WorkspaceManager;
   paths: Paths;
   previewServer: PreviewServerHandle | null;
@@ -51,6 +59,7 @@ export class Orchestrator {
   private readonly db: Db;
   private readonly eventBus: EventBus;
   private readonly config: ResolvedConfig;
+  private readonly rawConfig: GaidoConfig;
   private readonly workspace: WorkspaceManager;
   private readonly paths: Paths;
   private readonly previewServer: PreviewServerHandle | null;
@@ -60,6 +69,7 @@ export class Orchestrator {
     this.db = deps.db;
     this.eventBus = deps.eventBus;
     this.config = deps.config;
+    this.rawConfig = deps.rawConfig;
     this.workspace = deps.workspace;
     this.paths = deps.paths;
     this.previewServer = deps.previewServer;
@@ -241,10 +251,16 @@ export class Orchestrator {
     }
     const canvasId = node.canvasId;
     try {
+      // Resolve the config this node actually runs under: the project config
+      // with its skeleton's overlay applied. Inside the try so a malformed
+      // overlay (e.g. a forbidden field) fails the run with a clear error
+      // rather than throwing uncaught.
+      const cfg = await this.effectiveConfigForNode(node);
+      if (cfg !== this.config) this.reconcileConfigSnapshot(runId, cfg);
       if (node.kind === 'critique') {
-        await this.executeCritique(runId, nodeId, node, signal);
+        await this.executeCritique(runId, nodeId, node, cfg, signal);
       } else {
-        await this.executeCoder(runId, nodeId, node, signal);
+        await this.executeCoder(runId, nodeId, node, cfg, signal);
       }
     } catch (err) {
       if (signal.aborted) {
@@ -265,6 +281,7 @@ export class Orchestrator {
     runId: string,
     nodeId: string,
     node: Node,
+    cfg: ResolvedConfig,
     signal: AbortSignal
   ): Promise<void> {
     // Anchor row owns the worktree + branch + session for a chain of
@@ -282,8 +299,8 @@ export class Orchestrator {
     const canvasSlug = this.resolveCanvasSlug(node.canvasId);
 
     let sessionId: string | null = anchor.sessionId ?? null;
-    const checks = this.config.postCoderChecks;
-    const maxAttempts = Math.max(1, this.config.checkMaxRetries);
+    const checks = cfg.postCoderChecks;
+    const maxAttempts = Math.max(1, cfg.checkMaxRetries);
 
     // Coding phase wraps the coder.run + post-coder check loop. Each
     // additional attempt resumes the same session with the failing check's
@@ -385,7 +402,7 @@ export class Orchestrator {
           }
         }
 
-        const result = await this.config.coder.run(
+        const result = await cfg.coder.run(
           {
             instruction: turnInstruction,
             priorSessionId: sessionId,
@@ -533,12 +550,12 @@ export class Orchestrator {
       const outputDir = path.join(this.paths.artifactsDir, canvasSlug, runId);
       fs.mkdirSync(outputDir, { recursive: true });
 
-      const result = await this.config.renderer.render(
+      const result = await cfg.renderer.render(
         {
-          duration: this.config.render.duration,
-          fps: this.config.render.fps,
-          width: this.config.render.width,
-          height: this.config.render.height,
+          duration: cfg.render.duration,
+          fps: cfg.render.fps,
+          width: cfg.render.width,
+          height: cfg.render.height,
         },
         {
           nodeId,
@@ -566,7 +583,7 @@ export class Orchestrator {
           mimeFromPath(result.thumbnailPath)
         );
       }
-      const publicUrlFn = this.config.previewServer?.publicUrl;
+      const publicUrlFn = cfg.previewServer?.publicUrl;
       const persistedUrl = publicUrlFn
         ? publicUrlFn({ runId, nodeId })
         : result.previewUrl ?? null;
@@ -587,6 +604,7 @@ export class Orchestrator {
     runId: string,
     nodeId: string,
     node: Node,
+    cfg: ResolvedConfig,
     signal: AbortSignal
   ): Promise<void> {
     if (!node.parentId) {
@@ -625,7 +643,7 @@ export class Orchestrator {
     let critique: Critique | null = null;
     await this.runPhase(runId, nodeId, node.canvasId, 'critiquing', signal, async () => {
       const codePath = this.workspace.workspacePath({ nodeId: parent.id, canvasSlug });
-      const result = await this.config.critic.critique(
+      const result = await cfg.critic.critique(
         {
           videoPath: videoArtifact.path,
           codePath,
@@ -677,6 +695,64 @@ export class Orchestrator {
       cursor = p.parentId;
     }
     return null;
+  }
+
+  /**
+   * Effective config for a node's run: the project config with its skeleton's
+   * overlay applied (Tailwind-style). The skeleton is the one the lineage's
+   * root coder chose; the whole subtree (forks included) inherits it. Returns
+   * the shared project config *by reference* when the skeleton has no overlay
+   * file, so `execute()` can cheaply detect the no-op case.
+   */
+  private async effectiveConfigForNode(node: Node): Promise<ResolvedConfig> {
+    const skeletonName = this.resolveRootSkeletonName(node);
+    const overlay = await loadSkeletonConfig(skeletonName, {
+      projectDir: this.paths.projectDir,
+    });
+    if (!overlay) return this.config;
+    return mergeWithDefaults(applySkeletonOverlay(this.rawConfig, overlay));
+  }
+
+  /**
+   * Walk to the root of the lineage and return the skeleton name set there.
+   * `skeleton_name` lives only on root coders; forks and continuations leave
+   * it null and inherit by branch lineage. Critique nodes walk up through
+   * their coder parent to the same root. Falls back to `'default'`.
+   */
+  private resolveRootSkeletonName(node: Node): string {
+    let cursor: Node | null = node;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (cursor.skeletonName) return cursor.skeletonName;
+      if (!cursor.parentId || seen.has(cursor.id)) break;
+      seen.add(cursor.id);
+      cursor =
+        this.db
+          .select()
+          .from(schema.nodes)
+          .where(eq(schema.nodes.id, cursor.parentId))
+          .get() ?? null;
+    }
+    return 'default';
+  }
+
+  /**
+   * Rewrite the run's adapter snapshot to match the effective config. Called
+   * only when a skeleton overlay actually changed the config, so the recorded
+   * coder/critic/renderer kinds reflect what really ran on this node rather
+   * than the project defaults captured at `startRun` time.
+   */
+  private reconcileConfigSnapshot(runId: string, cfg: ResolvedConfig): void {
+    const snapshot: AdapterConfigSnapshot = {
+      coder: { kind: cfg.coder.kind },
+      critic: { kind: cfg.critic.kind },
+      renderer: { kind: cfg.renderer.kind },
+    };
+    this.db
+      .update(schema.runs)
+      .set({ configSnapshot: snapshot, updatedAt: Date.now() })
+      .where(eq(schema.runs.id, runId))
+      .run();
   }
 
   /**
