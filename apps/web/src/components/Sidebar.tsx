@@ -121,6 +121,10 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
     utils.runs.listByNode.invalidate({ nodeId });
   };
 
+  const rerunRender = trpc.nodes.rerunRender.useMutation({
+    onSuccess: () => refreshNodeState(),
+  });
+
   // Reset live token counter whenever we switch runs.
   const currentRunId = node?.currentRunId ?? null;
   useEffect(() => {
@@ -134,6 +138,12 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
   const retryable = nodeQuery.data?.retryable ?? true;
   const canRetry = RETRYABLE.has(status) && retryable;
   const canFork = !!critiqueChild;
+  // The coder coded fine but the render flaked — offer a render-only re-run
+  // that skips the coder. Gated to the leaf coder (same rule as Retry).
+  const renderFailed =
+    status === 'failed' &&
+    currentRun?.error?.phase === 'rendering' &&
+    retryable;
   const retryTooltip = retryable
     ? undefined
     : 'This branch has continued past this iteration — continue from a later critique or fork instead';
@@ -226,6 +236,18 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           >
             Retry
           </button>
+          {renderFailed ? (
+            <button
+              type="button"
+              onClick={() => rerunRender.mutate({ nodeId })}
+              disabled={rerunRender.isPending}
+              data-testid="sidebar-rerender"
+              title="Re-run only the renderer against the code this run already committed — skips the coder"
+              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+            >
+              Re-render
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
@@ -235,6 +257,15 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             Delete
           </button>
         </div>
+
+        {rerunRender.error ? (
+          <p
+            data-testid="rerender-error"
+            className="font-mono text-xs uppercase tracking-caps text-sanguine"
+          >
+            {rerunRender.error.message}
+          </p>
+        ) : null}
       </div>
 
       {forkOpen && critiqueChild ? (

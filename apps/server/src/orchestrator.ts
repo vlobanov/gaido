@@ -136,6 +136,60 @@ export class Orchestrator {
   }
 
   /**
+   * Re-run only the rendering phase of a coder node's current run. For a
+   * transient renderer failure: the coder already coded + committed, but the
+   * renderer flaked and the run landed `failed`. Reuses the same run (and its
+   * commit) — no new coder turn, no tokens, no risk of different code — clears
+   * the prior render failure, repeats the render against the existing worktree,
+   * and on success lands the run `done` and spawns the critique child.
+   *
+   * The tRPC layer enforces the node is a renderable leaf coder whose run
+   * finished coding and isn't in flight; here we just reset + re-execute.
+   */
+  rerunRender(nodeId: string): Run {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) throw new Error(`node ${nodeId} not found`);
+    const runId = node.currentRunId;
+    if (!runId) throw new Error(`node ${nodeId} has no run to render`);
+
+    const now = Date.now();
+    // Reset the render state on the existing run: back to running, drop the
+    // prior failure + render timestamps so they reflect this attempt only.
+    this.db
+      .update(schema.runs)
+      .set({
+        status: 'running',
+        error: null,
+        renderingStartedAt: null,
+        renderingFinishedAt: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.runs.id, runId))
+      .run();
+    this.db
+      .update(schema.nodes)
+      .set({ status: 'running', currentRunId: runId, updatedAt: now })
+      .where(eq(schema.nodes.id, nodeId))
+      .run();
+
+    const ctrl = new AbortController();
+    this.active.set(runId, ctrl);
+    void this.executeRender(runId, nodeId, ctrl.signal).finally(() => {
+      this.active.delete(runId);
+    });
+
+    return this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, runId))
+      .get()!;
+  }
+
+  /**
    * Persist a human-written critique on a critique node. Used by the
    * notes panel in the sidebar — bypasses the critic adapter entirely.
    *
@@ -550,9 +604,40 @@ export class Orchestrator {
       return;
     }
 
-    // Rendering phase.
+    // Rendering phase. Extracted into renderNode so a transient renderer
+    // failure can be retried on its own (`rerunRender`) without re-running
+    // the coder — the committed code already in the worktree is what renders.
+    await this.renderNode(runId, nodeId, node, cfg, signal);
+
+    this.setRunStatus(runId, nodeId, 'done', {});
+    this.autoSpawnCritiqueChild(node);
+  }
+
+  /**
+   * Render the committed code in the node's (anchor's) worktree to video +
+   * thumbnail and record the artifacts. Shared by the full coder run and the
+   * render-only re-run (`rerunRender`): both read the same worktree, so a
+   * flaky render can be repeated without re-running the coder. Throws on
+   * renderer failure — the caller maps it to a failed run via `runPhase`.
+   */
+  private async renderNode(
+    runId: string,
+    nodeId: string,
+    node: Node,
+    cfg: ResolvedConfig,
+    signal: AbortSignal
+  ): Promise<void> {
+    const anchorId = node.branchAnchorId ?? node.id;
+    const canvasSlug = this.resolveCanvasSlug(node.canvasId);
     await this.runPhase(runId, nodeId, node.canvasId, 'rendering', signal, async () => {
-      const workdir = this.workspace.workspacePath({ nodeId: anchorId, canvasSlug });
+      // The worktree holds the committed code from the coding phase. Ensure it
+      // (idempotent no-op when it already exists; re-checks-out the branch tip
+      // if a worktree was pruned) so a render-only re-run doesn't depend on the
+      // coding phase having just run in this process.
+      const workdir = await this.workspace.ensureNodeWorkspace({
+        nodeId: anchorId,
+        canvasSlug,
+      });
       const outputDir = path.join(this.paths.artifactsDir, canvasSlug, runId);
       fs.mkdirSync(outputDir, { recursive: true });
 
@@ -601,9 +686,50 @@ export class Orchestrator {
           .run();
       }
     });
+  }
 
-    this.setRunStatus(runId, nodeId, 'done', {});
-    this.autoSpawnCritiqueChild(node);
+  /**
+   * Render-only execute path, used by `rerunRender`. Mirrors `execute` but
+   * runs just the rendering phase against the run's already-committed code,
+   * then lands the run `done` and ensures the critique child. Re-resolves the
+   * effective (skeleton-overlaid) config so an overlay's renderer/params apply.
+   */
+  private async executeRender(
+    runId: string,
+    nodeId: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) {
+      this.setRunStatus(runId, nodeId, 'failed', {
+        error: { phase: 'startup', message: `node ${nodeId} not found` },
+      });
+      return;
+    }
+    const canvasId = node.canvasId;
+    try {
+      const cfg = await this.effectiveConfigForNode(node);
+      if (cfg !== this.config) this.reconcileConfigSnapshot(runId, cfg, node);
+      await this.renderNode(runId, nodeId, node, cfg, signal);
+      this.setRunStatus(runId, nodeId, 'done', {});
+      this.autoSpawnCritiqueChild(node);
+    } catch (err) {
+      if (signal.aborted) {
+        this.setRunStatus(runId, nodeId, 'cancelled', {});
+        return;
+      }
+      const e = toRunError(err);
+      this.eventBus.publish(runId, canvasId, {
+        kind: 'error',
+        phase: e.phase === 'startup' ? undefined : e.phase,
+        message: e.message,
+      });
+      this.setRunStatus(runId, nodeId, 'failed', { error: e });
+    }
   }
 
   private async executeCritique(

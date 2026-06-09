@@ -507,6 +507,81 @@ export const nodesRouter = router({
     }),
 
   /**
+   * Re-run ONLY the rendering phase of a coder node's current run — for a
+   * transient renderer failure where the coder already coded + committed but
+   * the render flaked, so the whole run landed `failed`. Reuses the run + its
+   * commit (no coder turn, no tokens, no risk of different code) and repeats
+   * the render against the worktree. Gated to a renderable leaf coder whose
+   * run finished coding, isn't in flight, and didn't intentionally skip the
+   * render. Use Retry instead to re-run the coder from scratch.
+   */
+  rerunRender: publicProcedure
+    .input(z.object({ nodeId: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get();
+      if (!node) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.nodeId}` });
+      }
+      if (node.kind !== 'coder') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'only coder nodes render',
+        });
+      }
+      // Same leaf rule as Retry: a continued coder's branch tip is a later
+      // iteration's commit, so re-rendering the worktree would render that, not
+      // this node's code. (A failed-render coder is always a leaf — you can't
+      // continue past a failed node — but keep the guard explicit.)
+      if (!isLeafOfBranch(ctx.db, node)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'this coder has continued descendants — its code is no longer at the branch tip; fork instead',
+        });
+      }
+      const run = node.currentRunId
+        ? ctx.db
+            .select()
+            .from(schema.runs)
+            .where(eq(schema.runs.id, node.currentRunId))
+            .get() ?? null
+        : null;
+      if (!run) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'node has no run to render',
+        });
+      }
+      if (run.status === 'running') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'run is still in progress',
+        });
+      }
+      // Coding must have completed — there has to be committed code to render.
+      if (!run.codingFinishedAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'this run never finished coding — retry instead of re-rendering',
+        });
+      }
+      // A run whose coder opted out of producing an artifact (MESSAGE.md with
+      // producedArtifact=false) has nothing to render.
+      if (run.message && !run.message.producedArtifact) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'this run intentionally produced no render',
+        });
+      }
+      return ctx.orchestrator.rerunRender(node.id);
+    }),
+
+  /**
    * Reply to a coder's MESSAGE.md in-thread: stack a new run on the same
    * node that resumes the coder's Claude Code session with `text` as the
    * next turn. The text is persisted on the new run's `artistFollowUp`

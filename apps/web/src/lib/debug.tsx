@@ -48,6 +48,12 @@ export interface GaidoDebug {
       coderName?: string
     ): Promise<unknown>;
     /**
+     * Re-run only the rendering phase of a coder whose render failed — reuses
+     * the run + its commit, skips the coder. No-op-ish on non-renderable runs
+     * (the server rejects them).
+     */
+    rerunRender(nodeId: string): Promise<unknown>;
+    /**
      * Switch coder mid-graph: inserts a `config` node under the critique and
      * spawns one coder under it wired to the session policy, then runs it.
      */
@@ -129,6 +135,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
   const createRoot = trpc.nodes.createRoot.useMutation();
   const createChild = trpc.nodes.createChild.useMutation();
   const retry = trpc.nodes.retry.useMutation();
+  const rerunRender = trpc.nodes.rerunRender.useMutation();
   const switchCoder = trpc.nodes.switchCoder.useMutation();
   const cancel = trpc.nodes.cancel.useMutation();
   const deleteNode = trpc.nodes.delete.useMutation();
@@ -266,6 +273,11 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
           await utils.nodes.list.invalidate();
           return result;
         },
+        async rerunRender(nodeId: string) {
+          const result = await rerunRender.mutateAsync({ nodeId });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
         async switchCoder(
           critiqueNodeId: string,
           opts: {
@@ -324,7 +336,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         delete window.__gaido;
       }
     };
-  }, [utils, createRoot, createChild, retry, switchCoder, cancel, deleteNode, createCanvas, setLocation]);
+  }, [utils, createRoot, createChild, retry, rerunRender, switchCoder, cancel, deleteNode, createCanvas, setLocation]);
 
   return null;
 }
