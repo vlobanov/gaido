@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { trpc } from '../lib/trpc';
+import { readPref, writePref } from '../lib/prefs';
 import {
   ReferenceDraftField,
   toReferenceInput,
   type DraftReference,
 } from './ReferenceAttacher';
+
+// Remembered across sessions so the next seed defaults to the last choice.
+const SEED_SKELETON_PREF = 'seed.skeleton';
+const SEED_CODER_PREF = 'seed.coder';
 
 interface CanvasSummary {
   id: string;
@@ -54,8 +59,8 @@ interface CreateRootModalProps {
 
 export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [instruction, setInstruction] = useState('');
-  const [skeletonName, setSkeletonName] = useState<string | null>(null);
-  const [coderName, setCoderName] = useState<string | null>(null);
+  const [skeletonName, setSkeletonName] = useState<string | null>(() => readPref(SEED_SKELETON_PREF));
+  const [coderName, setCoderName] = useState<string | null>(() => readPref(SEED_CODER_PREF));
   const [references, setReferences] = useState<DraftReference[]>([]);
   const utils = trpc.useUtils();
   const skeletons = trpc.skeletons.list.useQuery();
@@ -67,9 +72,12 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
     },
   });
 
+  // The picked name may be a stale localStorage value for a skeleton/coder
+  // that no longer exists; validate against the live options and fall back to
+  // the default when it's gone.
   const skeletonOptions = skeletons.data ?? [];
   const resolvedSkeleton =
-    skeletonName ??
+    (skeletonName && skeletonOptions.some((s) => s.name === skeletonName) ? skeletonName : null) ??
     skeletonOptions.find((s) => s.name === 'default')?.name ??
     skeletonOptions[0]?.name ??
     null;
@@ -78,7 +86,7 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   // coder is the default and needs no choice.
   const coderOptions = coders.data ?? [];
   const resolvedCoder =
-    coderName ??
+    (coderName && coderOptions.some((c) => c.name === coderName) ? coderName : null) ??
     coderOptions.find((c) => c.isDefault)?.name ??
     coderOptions[0]?.name ??
     null;
@@ -131,7 +139,10 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
             <select
               id="create-root-skeleton"
               value={resolvedSkeleton ?? ''}
-              onChange={(e) => setSkeletonName(e.target.value)}
+              onChange={(e) => {
+                setSkeletonName(e.target.value);
+                writePref(SEED_SKELETON_PREF, e.target.value);
+              }}
               data-testid="create-root-skeleton"
               className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
             >
@@ -154,7 +165,10 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
             <select
               id="create-root-coder"
               value={resolvedCoder ?? ''}
-              onChange={(e) => setCoderName(e.target.value)}
+              onChange={(e) => {
+                setCoderName(e.target.value);
+                writePref(SEED_CODER_PREF, e.target.value);
+              }}
               data-testid="create-root-coder"
               className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
             >
