@@ -7,6 +7,13 @@ export default defineConfig({
   // Requires: 'claude' on PATH (coder), 'ffmpeg' on PATH (renderer + critic
   // frame fallbacks), and OPENROUTER_API_KEY in env (critic).
   coder: claudeCodeCoder(),
+  // Prefer named variants? Swap \`coder\` for a \`coders\` map and the seed
+  // picker + mid-graph "Switch coder" both list them (first entry is the
+  // default):
+  //   coders: {
+  //     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
+  //     'cc-opus': claudeCodeCoder({ model: 'opus', effort: 'high' }),
+  //   },
   renderer: playwrightRenderer(),
   critic: geminiCritic(),
 

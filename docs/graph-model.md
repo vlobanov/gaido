@@ -1,15 +1,34 @@
 # Graph model
 
-Gaido's graph **is** the workflow. Two node kinds alternate; a node is a slot, runs are attempts to fill it. No external workflow runtime — see `docs/conventions.md` for why.
+Gaido's graph **is** the workflow. Coder and critique nodes alternate (with optional config nodes spliced in); a node is a slot, runs are attempts to fill it. No external workflow runtime — see `docs/conventions.md` for why.
 
-## Two node kinds: coder & critique
+## Node kinds: coder, critique & config
 
-`nodes.kind` discriminates. The graph alternates `coder → critique → coder → critique`.
+`nodes.kind` discriminates. The graph alternates `coder → critique → coder → critique`, with an optional `config` node spliced between a critique and the coder it spawns (`… → critique → config → coder → …`).
 
 - A coder finishing successfully auto-spawns one critique child in `status='idle'`; the user clicks to run the critic (or calls `retry` / `runCritique` from the test bridge).
 - Forking a coder lands the new coder **under its critique child** — multiple forks from the same coder produce sibling coders under one shared critique.
 - Direct coder-to-coder children are rejected by `createChild`.
 - A partial unique index `(parent_id) WHERE kind='critique'` makes the auto-spawn idempotent across retries.
+
+### Config nodes (mid-graph coder switch)
+
+A `config` node records a coder/model switch made mid-graph (the `switchCoder` mutation, "Switch coder" in the critique sidebar). It's a **settled marker**: `status='done'`, no run, no worktree, no branch, no session, no artifacts — lighter than a critique node. It carries `coder_name` (the chosen registry coder) and `session_policy`:
+
+- `retain` → the coder it spawns shares the branch anchor (`branch_anchor_id`), resuming the existing session under the new coder — like Continue. Only valid when the new coder is **session-compatible** (same adapter `kind`) and a session exists.
+- `reset` → the spawned coder owns a fresh branch off the parent coder's tip — like Fork. Same code, brand-new session. The only option for an incompatible switch.
+
+`switchCoder` inserts the config node under the critique and one coder under it (wired per policy), then runs the coder. Branch/session resolution treats config nodes as transparent, same as critiques: `resolveAncestorCoder` walks past them. The spawned coder leaves `coder_name` null and inherits the config node's choice by lineage walk (see "Coder selection" below).
+
+## Coder selection
+
+The config holds a **named coder registry** (`coders: Record<string, Coder>`, or a single `coder` registered as `"default"` — `resolveCoderRegistry` in `packages/core`). A node's effective coder is the first non-null `coder_name` walking up its parent chain, else the registry default — the same inherit-down-lineage shape as `skeleton_name`. `coder_name` is set only where a coder is *chosen*:
+
+- **Root coders** — picked in the seed modal (`createRoot`).
+- **Config nodes** — the mid-graph switch above.
+- **Coder nodes whose model was swapped on Retry** — `retry({ coderName })` pins the new coder on the node. Gated to **session-compatible** coders when the branch has a live session (you can't resume one adapter's session under another); use a config switch for an incompatible swap.
+
+The orchestrator resolves the coder per run (`resolveCoder`) against the effective config (project config + skeleton overlay), and records the resolved name in `runs.config_snapshot.coder.args.name`. Invariant: a node never holds a session of a different `kind` than its resolved coder — which is why the orchestrator's "resume iff `session_id` set" rule stays correct without tracking the session's kind.
 
 ## Node ≠ Run
 

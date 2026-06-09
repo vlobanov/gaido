@@ -17,6 +17,12 @@ export interface ClaudeCodeCoderOpts {
   /** Model id. Default: 'claude-sonnet-4-6'. */
   model?: string;
   /**
+   * Effort level for the session, passed through as `--effort <level>` (e.g.
+   * 'low' | 'medium' | 'high' | 'max'). Typed loosely so new levels work
+   * without an adapter bump; the CLI validates. Omitted flag when unset.
+   */
+  effort?: string;
+  /**
    * Permission mode passed to claude. Default: 'bypassPermissions' — fits the
    * sandboxed worktree model where the agent owns its directory. Use
    * 'acceptEdits' to require approval for non-edit tools, or 'default' for
@@ -32,6 +38,7 @@ export function claudeCodeCoder(opts: ClaudeCodeCoderOpts = {}): Coder {
     bin: opts.bin ?? 'claude',
     model: opts.model ?? 'claude-sonnet-4-6',
     permissionMode: opts.permissionMode ?? 'bypassPermissions',
+    effort: opts.effort,
     extraArgs: opts.extraArgs ?? [],
   };
 
@@ -45,6 +52,7 @@ interface ResolvedConfig {
   bin: string;
   model: string;
   permissionMode: ClaudeCodePermissionMode;
+  effort?: string;
   extraArgs: string[];
 }
 
@@ -69,13 +77,16 @@ async function runCoder(
     '--permission-mode',
     cfg.permissionMode,
   ];
+  if (cfg.effort) {
+    args.push('--effort', cfg.effort);
+  }
   if (input.priorSessionId) {
     args.push('--resume', input.priorSessionId);
   }
   args.push(...cfg.extraArgs);
 
   ctx.logger.info(
-    `[claude-code] spawn ${cfg.bin} model=${cfg.model} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
+    `[claude-code] spawn ${cfg.bin} model=${cfg.model}${cfg.effort ? ` effort=${cfg.effort}` : ''} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
   );
 
   return new Promise<CoderResult>((resolve, reject) => {

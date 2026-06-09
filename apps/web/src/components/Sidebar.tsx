@@ -58,6 +58,8 @@ export function Sidebar({ nodeId }: SidebarProps) {
 
   return node.kind === 'critique' ? (
     <CritiqueSidebar nodeId={nodeId} />
+  ) : node.kind === 'config' ? (
+    <ConfigSidebar nodeId={nodeId} />
   ) : (
     <CoderSidebar nodeId={nodeId} />
   );
@@ -415,6 +417,7 @@ function CoderTurn({ message }: { message: CoderMessage }) {
 function CritiqueSidebar({ nodeId }: { nodeId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
@@ -542,6 +545,14 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           >
             Fork
           </button>
+          <button
+            type="button"
+            onClick={() => setSwitchOpen(true)}
+            data-testid="sidebar-switch-coder"
+            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
+          >
+            Switch coder
+          </button>
           {isHumanCritic ? null : (
             <button
               type="button"
@@ -574,6 +585,18 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           onClose={() => setForkOpen(false)}
           onCreated={(newId) => {
             setForkOpen(false);
+            utils.nodes.list.invalidate();
+            setSelectedNodeId(newId);
+          }}
+        />
+      ) : null}
+
+      {switchOpen ? (
+        <SwitchCoderModal
+          critiqueNodeId={nodeId}
+          onClose={() => setSwitchOpen(false)}
+          onSwitched={(newId) => {
+            setSwitchOpen(false);
             utils.nodes.list.invalidate();
             setSelectedNodeId(newId);
           }}
@@ -1149,6 +1172,19 @@ function RetryModal({
   onRetried: () => void;
 }) {
   const [prompt, setPrompt] = useState('');
+  const [coderName, setCoderName] = useState<string | null>(null);
+  const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
+  const codersQuery = trpc.coders.list.useQuery();
+  const coderOptions = codersQuery.data ?? [];
+  const resolvedCoderName = nodeQuery.data?.resolvedCoderName ?? null;
+  const resolvedCoderKind = nodeQuery.data?.resolvedCoderKind ?? null;
+  const hasSession = nodeQuery.data?.hasSession ?? false;
+  const selectedCoder = coderName ?? resolvedCoderName;
+  // A live session can only resume under a same-kind adapter; others must go
+  // through a config switch (new session). Lock them out here.
+  const coderLocked = (kind: string) =>
+    hasSession && resolvedCoderKind != null && kind !== resolvedCoderKind;
+
   const retry = trpc.nodes.retry.useMutation({
     onSuccess: () => onRetried(),
   });
@@ -1157,7 +1193,17 @@ function RetryModal({
     e.preventDefault();
     if (retry.isPending) return;
     const trimmed = prompt.trim();
-    retry.mutate({ nodeId, prompt: trimmed || undefined });
+    // Only send coderName when it actually changes the resolved coder, so a
+    // plain retry doesn't pin an otherwise-inherited choice onto the node.
+    const swap =
+      selectedCoder && selectedCoder !== resolvedCoderName
+        ? selectedCoder
+        : undefined;
+    retry.mutate({
+      nodeId,
+      prompt: trimmed || undefined,
+      ...(swap ? { coderName: swap } : {}),
+    });
   };
 
   return (
@@ -1177,6 +1223,35 @@ function RetryModal({
             New attempt
           </span>
         </div>
+        {coderOptions.length > 1 ? (
+          <div className="mb-4">
+            <label
+              htmlFor="retry-coder"
+              className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+            >
+              Coder
+            </label>
+            <select
+              id="retry-coder"
+              value={selectedCoder ?? ''}
+              onChange={(e) => setCoderName(e.target.value)}
+              data-testid="retry-coder"
+              className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
+            >
+              {coderOptions.map((c) => (
+                <option key={c.name} value={c.name} disabled={coderLocked(c.kind)}>
+                  {c.name} · {c.kind}
+                  {coderLocked(c.kind) ? ' · incompatible' : ''}
+                </option>
+              ))}
+            </select>
+            {hasSession ? (
+              <p className="mt-2 font-mono text-[10px] uppercase tracking-caps text-ink-faint">
+                Resumes the session — same-kind coders only. Switch coder for others.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <label
           htmlFor="retry-input"
           className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
@@ -1220,6 +1295,266 @@ function RetryModal({
         </div>
       </form>
     </div>
+  );
+}
+
+function SwitchCoderModal({
+  critiqueNodeId,
+  onClose,
+  onSwitched,
+}: {
+  critiqueNodeId: string;
+  onClose: () => void;
+  onSwitched: (newId: string) => void;
+}) {
+  const [instruction, setInstruction] = useState('');
+  const [coderName, setCoderName] = useState<string | null>(null);
+  const [sessionPolicy, setSessionPolicy] = useState<'retain' | 'reset'>('reset');
+  const nodeQuery = trpc.nodes.get.useQuery({ nodeId: critiqueNodeId });
+  const codersQuery = trpc.coders.list.useQuery();
+  const coderOptions = codersQuery.data ?? [];
+  const currentCoderName = nodeQuery.data?.resolvedCoderName ?? null;
+  const currentCoderKind = nodeQuery.data?.resolvedCoderKind ?? null;
+  const branchHasSession = nodeQuery.data?.hasSession ?? false;
+
+  // Default the picker to the branch's current coder — switching to the same
+  // coder with `reset` is a valid "start anew, same model + code" move.
+  const resolvedCoder =
+    coderName ?? currentCoderName ?? coderOptions[0]?.name ?? null;
+  const selectedKind =
+    coderOptions.find((c) => c.name === resolvedCoder)?.kind ?? null;
+  // Retain resumes the branch session — needs a live session AND a same-kind
+  // coder to resume it under.
+  const canRetain =
+    branchHasSession &&
+    selectedKind != null &&
+    currentCoderKind != null &&
+    selectedKind === currentCoderKind;
+  const effectivePolicy = canRetain ? sessionPolicy : 'reset';
+  const retainReason = !branchHasSession
+    ? 'No live session on this branch yet — reset starts a fresh one'
+    : 'Only a same-kind coder can resume the session';
+
+  const switchCoder = trpc.nodes.switchCoder.useMutation({
+    onSuccess: (data) => onSwitched(data.node.id),
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = instruction.trim();
+    if (!trimmed || !resolvedCoder || switchCoder.isPending) return;
+    switchCoder.mutate({
+      critiqueNodeId,
+      coderName: resolvedCoder,
+      sessionPolicy: effectivePolicy,
+      instruction: trimmed,
+    });
+  };
+
+  const policyButton = (
+    value: 'retain' | 'reset',
+    label: string,
+    disabled: boolean
+  ) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => setSessionPolicy(value)}
+      data-testid={`switch-policy-${value}`}
+      title={disabled ? retainReason : undefined}
+      className={`flex-1 border px-3 py-2 font-mono text-xs uppercase tracking-caps transition-colors disabled:opacity-40 ${
+        effectivePolicy === value
+          ? 'border-sanguine bg-sanguine-tint text-sanguine'
+          : 'border-hairline text-ink-soft hover:bg-paper-deep'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="switch-coder-form"
+        className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
+      >
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-xl text-ink">Switch coder</h3>
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+            New coder
+          </span>
+        </div>
+
+        <div className="mb-4">
+          <label
+            htmlFor="switch-coder-select"
+            className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+          >
+            Coder
+          </label>
+          <select
+            id="switch-coder-select"
+            value={resolvedCoder ?? ''}
+            onChange={(e) => setCoderName(e.target.value)}
+            data-testid="switch-coder-select"
+            className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
+          >
+            {coderOptions.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name} · {c.kind}
+                {c.name === currentCoderName ? ' · current' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mb-4">
+          <span className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted">
+            Session
+          </span>
+          <div className="flex gap-2">
+            {policyButton('reset', 'Reset · new session', false)}
+            {policyButton('retain', 'Retain · keep session', !canRetain)}
+          </div>
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-caps text-ink-faint">
+            {effectivePolicy === 'retain'
+              ? 'Resumes the conversation under the new coder'
+              : 'Fresh session, starting from this iteration’s code'}
+          </p>
+        </div>
+
+        <label
+          htmlFor="switch-coder-instruction"
+          className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+        >
+          Instruction for the new coder
+        </label>
+        <textarea
+          id="switch-coder-instruction"
+          autoFocus
+          rows={3}
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+          placeholder="Push the lighting further and tighten the loop"
+          data-testid="switch-coder-instruction"
+          className="w-full resize-none border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+        />
+        {switchCoder.error ? (
+          <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
+            {switchCoder.error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={switchCoder.isPending || !instruction.trim()}
+            data-testid="switch-coder-submit"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40"
+          >
+            {switchCoder.isPending ? 'Switching...' : 'Switch & run'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ConfigSidebar({ nodeId }: { nodeId: string }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
+  const utils = trpc.useUtils();
+
+  const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
+  const nodesList = trpc.nodes.list.useQuery();
+  const node = nodeQuery.data?.node;
+
+  const childCoder = useMemo(() => {
+    if (!nodesList.data) return null;
+    return (
+      nodesList.data.find(
+        (n) => n.parentId === nodeId && n.kind === 'coder'
+      ) ?? null
+    );
+  }, [nodesList.data, nodeId]);
+
+  const deleteNode = trpc.nodes.delete.useMutation({
+    onSuccess: () => {
+      utils.nodes.list.invalidate();
+      setSelectedNodeId(null);
+    },
+  });
+
+  if (!node) return null;
+  const policy = node.sessionPolicy;
+
+  return (
+    <SidebarShell onClose={() => setSelectedNodeId(null)}>
+      <div className="flex flex-col gap-6 p-5">
+        <div className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+          Config · coder switch
+        </div>
+
+        <Section label="Coder">
+          <p className="font-mono text-base text-ink">{node.coderName ?? '—'}</p>
+        </Section>
+
+        <Section label="Session">
+          <p className="font-mono text-xs uppercase tracking-caps text-ink-soft">
+            {policy === 'retain'
+              ? 'Retain · resumes the branch session'
+              : 'Reset · fresh session, same code'}
+          </p>
+        </Section>
+
+        {childCoder ? (
+          <Section label="Spawned coder">
+            <button
+              type="button"
+              onClick={() => setSelectedNodeId(childCoder.id)}
+              data-testid="config-child-link"
+              className="text-left font-serif text-sm leading-snug text-ink-soft underline decoration-hairline-deep underline-offset-2 hover:text-ink"
+            >
+              {childCoder.instruction || 'View coder'}
+            </button>
+          </Section>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            data-testid="sidebar-delete"
+            className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {confirmDelete ? (
+        <ConfirmDialog
+          title="Delete config node?"
+          description="Removes the coder switch and the coder (plus its descendants) spawned under it. The action cannot be undone."
+          confirmLabel="Delete"
+          danger
+          loading={deleteNode.isPending}
+          onConfirm={() => deleteNode.mutate({ nodeId })}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      ) : null}
+    </SidebarShell>
   );
 }
 

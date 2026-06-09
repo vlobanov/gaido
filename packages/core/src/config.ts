@@ -55,7 +55,20 @@ export interface PostCoderCheck {
 export interface GaidoConfig {
   name?: string;
   description?: string;
-  coder: Coder;
+  /**
+   * The project's coder. Either set this (single coder), or `coders` (named
+   * variants), or both — when both are set, `coder` registers under the name
+   * `"default"` unless `coders` already defines that key. At least one of the
+   * two must be present. See {@link resolveCoderRegistry}.
+   */
+  coder?: Coder;
+  /**
+   * Named coder variants, selectable per root node in the seed picker and
+   * switchable mid-graph via a config node. Keys are the names shown in the
+   * UI (e.g. `"cc-sonnet"`, `"cc-opus-48"`). A key named `"default"` is the
+   * implicit fallback; otherwise the first declared entry is the default.
+   */
+  coders?: Record<string, Coder>;
   critic: Critic;
   renderer: Renderer;
   previewServer?: PreviewServerConfig;
@@ -80,6 +93,43 @@ export interface GaidoConfig {
 
 export function defineConfig(config: GaidoConfig): GaidoConfig {
   return config;
+}
+
+export interface CoderRegistry {
+  /** name → coder, in declaration order. Always non-empty. */
+  coders: Map<string, Coder>;
+  /** Name used when a node names no coder (or names one no longer defined). */
+  defaultName: string;
+}
+
+/**
+ * Normalize a config's `coder` / `coders` into a flat registry. `coder`
+ * registers under `"default"` unless `coders` already defines that key. The
+ * default selection is `"default"` when present, else the first declared
+ * coder. Throws when neither field is set. Used by the config loader and by
+ * skeleton-overlay resolution, so the same precedence applies everywhere.
+ */
+export function resolveCoderRegistry(
+  cfg: Pick<GaidoConfig, 'coder' | 'coders'>
+): CoderRegistry {
+  const coders = new Map<string, Coder>();
+  if (cfg.coders) {
+    for (const [name, coder] of Object.entries(cfg.coders)) {
+      coders.set(name, coder);
+    }
+  }
+  if (cfg.coder && !coders.has('default')) {
+    coders.set('default', cfg.coder);
+  }
+  if (coders.size === 0) {
+    throw new Error(
+      'gaido.config.ts defines no coder — set `coder`, or at least one entry in `coders`.'
+    );
+  }
+  const defaultName = coders.has('default')
+    ? 'default'
+    : (coders.keys().next().value as string);
+  return { coders, defaultName };
 }
 
 /**

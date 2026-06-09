@@ -55,9 +55,11 @@ interface CreateRootModalProps {
 export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [instruction, setInstruction] = useState('');
   const [skeletonName, setSkeletonName] = useState<string | null>(null);
+  const [coderName, setCoderName] = useState<string | null>(null);
   const [references, setReferences] = useState<DraftReference[]>([]);
   const utils = trpc.useUtils();
   const skeletons = trpc.skeletons.list.useQuery();
+  const coders = trpc.coders.list.useQuery();
   const createRoot = trpc.nodes.createRoot.useMutation({
     onSuccess: async () => {
       await utils.nodes.list.invalidate();
@@ -72,6 +74,15 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
     skeletonOptions[0]?.name ??
     null;
 
+  // Only worth a picker when more than one coder is registered; a single
+  // coder is the default and needs no choice.
+  const coderOptions = coders.data ?? [];
+  const resolvedCoder =
+    coderName ??
+    coderOptions.find((c) => c.isDefault)?.name ??
+    coderOptions[0]?.name ??
+    null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = instruction.trim();
@@ -80,6 +91,7 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
       instruction: trimmed,
       canvasId: canvas.id,
       ...(resolvedSkeleton ? { skeletonName: resolvedSkeleton } : {}),
+      ...(resolvedCoder ? { coderName: resolvedCoder } : {}),
       ...(references.length ? { references: references.map(toReferenceInput) } : {}),
     });
   };
@@ -126,6 +138,29 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
               {skeletonOptions.map((s) => (
                 <option key={`${s.source}:${s.name}`} value={s.name}>
                   {s.name} · {s.source}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        {coderOptions.length > 1 ? (
+          <div className="mb-4">
+            <label
+              htmlFor="create-root-coder"
+              className="mb-2 block font-mono text-xs uppercase tracking-caps text-ink-muted"
+            >
+              Coder
+            </label>
+            <select
+              id="create-root-coder"
+              value={resolvedCoder ?? ''}
+              onChange={(e) => setCoderName(e.target.value)}
+              data-testid="create-root-coder"
+              className="w-full border border-hairline bg-paper-deep px-3 py-2 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
+            >
+              {coderOptions.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name} · {c.kind}
                 </option>
               ))}
             </select>

@@ -12,6 +12,7 @@ import {
 import type { Run, Node } from '@gaido/core/schema';
 import type {
   AdapterConfigSnapshot,
+  Coder,
   Critique,
   GaidoConfig,
   Logger,
@@ -87,11 +88,16 @@ export class Orchestrator {
   startRun(nodeId: string, opts?: { artistFollowUp?: string }): Run {
     const id = newRunId();
     const now = Date.now();
-    const snapshot: AdapterConfigSnapshot = {
-      coder: { kind: this.config.coder.kind },
-      critic: { kind: this.config.critic.kind },
-      renderer: { kind: this.config.renderer.kind },
-    };
+    // Resolve the coder this node runs under (root pick / config-node switch /
+    // retry swap, inherited down lineage) so the snapshot names it. Skeleton
+    // overlays that swap the registry are reconciled later in execute().
+    const startNode =
+      this.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, nodeId))
+        .get() ?? null;
+    const snapshot = this.buildConfigSnapshot(this.config, startNode);
 
     this.db
       .insert(schema.runs)
@@ -178,11 +184,7 @@ export class Orchestrator {
         .run();
     } else {
       runId = newRunId();
-      const snapshot: AdapterConfigSnapshot = {
-        coder: { kind: this.config.coder.kind },
-        critic: { kind: this.config.critic.kind },
-        renderer: { kind: this.config.renderer.kind },
-      };
+      const snapshot = this.buildConfigSnapshot(this.config, node);
       this.db
         .insert(schema.runs)
         .values({
@@ -256,7 +258,7 @@ export class Orchestrator {
       // overlay (e.g. a forbidden field) fails the run with a clear error
       // rather than throwing uncaught.
       const cfg = await this.effectiveConfigForNode(node);
-      if (cfg !== this.config) this.reconcileConfigSnapshot(runId, cfg);
+      if (cfg !== this.config) this.reconcileConfigSnapshot(runId, cfg, node);
       if (node.kind === 'critique') {
         await this.executeCritique(runId, nodeId, node, cfg, signal);
       } else {
@@ -297,6 +299,10 @@ export class Orchestrator {
             .get() ?? node);
 
     const canvasSlug = this.resolveCanvasSlug(node.canvasId);
+
+    // The coder for this run: resolved from the node's lineage (root pick,
+    // config-node switch, or retry swap) against the effective registry.
+    const { coder } = this.resolveCoder(cfg, node);
 
     let sessionId: string | null = anchor.sessionId ?? null;
     const checks = cfg.postCoderChecks;
@@ -402,7 +408,7 @@ export class Orchestrator {
           }
         }
 
-        const result = await cfg.coder.run(
+        const result = await coder.run(
           {
             instruction: turnInstruction,
             priorSessionId: sessionId,
@@ -740,19 +746,75 @@ export class Orchestrator {
    * Rewrite the run's adapter snapshot to match the effective config. Called
    * only when a skeleton overlay actually changed the config, so the recorded
    * coder/critic/renderer kinds reflect what really ran on this node rather
-   * than the project defaults captured at `startRun` time.
+   * than the project defaults captured at `startRun` time. The coder is
+   * re-resolved against the overlaid registry for this node.
    */
-  private reconcileConfigSnapshot(runId: string, cfg: ResolvedConfig): void {
-    const snapshot: AdapterConfigSnapshot = {
-      coder: { kind: cfg.coder.kind },
+  private reconcileConfigSnapshot(runId: string, cfg: ResolvedConfig, node: Node): void {
+    this.db
+      .update(schema.runs)
+      .set({ configSnapshot: this.buildConfigSnapshot(cfg, node), updatedAt: Date.now() })
+      .where(eq(schema.runs.id, runId))
+      .run();
+  }
+
+  /**
+   * Build a run's adapter snapshot. The coder entry names the registry coder
+   * resolved for `node` (root pick / config switch / retry swap, inherited
+   * down lineage); critic + renderer are single per config. `node` is null
+   * only when a row vanished mid-flight — fall back to the default coder.
+   */
+  private buildConfigSnapshot(cfg: ResolvedConfig, node: Node | null): AdapterConfigSnapshot {
+    const { coder, name } = this.resolveCoder(cfg, node);
+    return {
+      coder: { kind: coder.kind, args: { name } },
       critic: { kind: cfg.critic.kind },
       renderer: { kind: cfg.renderer.kind },
     };
-    this.db
-      .update(schema.runs)
-      .set({ configSnapshot: snapshot, updatedAt: Date.now() })
-      .where(eq(schema.runs.id, runId))
-      .run();
+  }
+
+  /**
+   * The coder a node runs under: its lineage's nearest chosen `coderName`
+   * (root pick, config-node switch, or retry swap) resolved against `cfg`'s
+   * registry, else the registry default. A stale name (config edited to drop
+   * a coder) falls back to the default with a warning rather than throwing.
+   */
+  private resolveCoder(cfg: ResolvedConfig, node: Node | null): { coder: Coder; name: string } {
+    const requested = (node && this.resolveCoderName(node)) || cfg.defaultCoderName;
+    const coder = cfg.coders.get(requested);
+    if (coder) return { coder, name: requested };
+    const fallback = cfg.coders.get(cfg.defaultCoderName);
+    if (!fallback) {
+      throw new Error(`coder registry is empty; cannot resolve coder '${requested}'`);
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[orchestrator] coder '${requested}' is not in the registry — using default '${cfg.defaultCoderName}'`
+    );
+    return { coder: fallback, name: cfg.defaultCoderName };
+  }
+
+  /**
+   * Walk up the parent chain and return the first non-null `coderName`. Set on
+   * root coders (seed pick), config nodes (mid-graph switch), and coder nodes
+   * whose model was swapped on Retry; null elsewhere. Mirrors
+   * `resolveRootSkeletonName`'s lineage walk, but stops at the nearest setter
+   * (config nodes) rather than always reaching the root.
+   */
+  private resolveCoderName(node: Node): string | null {
+    let cursor: Node | null = node;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (cursor.coderName) return cursor.coderName;
+      if (!cursor.parentId || seen.has(cursor.id)) break;
+      seen.add(cursor.id);
+      cursor =
+        this.db
+          .select()
+          .from(schema.nodes)
+          .where(eq(schema.nodes.id, cursor.parentId))
+          .get() ?? null;
+    }
+    return null;
   }
 
   /**

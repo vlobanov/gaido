@@ -1,12 +1,19 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
-import { defaults } from '@gaido/core';
-import type { GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@gaido/core';
+import { defaults, resolveCoderRegistry } from '@gaido/core';
+import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@gaido/core';
 
 export interface ResolvedConfig {
   name?: string;
   description?: string;
-  coder: GaidoConfig['coder'];
+  /**
+   * The coder registry, normalized from the config's `coder` / `coders`
+   * fields (see `resolveCoderRegistry`). Always non-empty. The orchestrator
+   * picks within it per node via the node's resolved `coderName`.
+   */
+  coders: Map<string, Coder>;
+  /** Registry key used when a node names no coder. */
+  defaultCoderName: string;
   critic: GaidoConfig['critic'];
   renderer: GaidoConfig['renderer'];
   previewServer: PreviewServerConfig | null;
@@ -51,10 +58,12 @@ export async function loadConfig(configFile: string): Promise<LoadedConfig> {
 }
 
 export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {
+  const registry = resolveCoderRegistry(cfg);
   return {
     ...(cfg.name !== undefined ? { name: cfg.name } : {}),
     ...(cfg.description !== undefined ? { description: cfg.description } : {}),
-    coder: cfg.coder,
+    coders: registry.coders,
+    defaultCoderName: registry.defaultName,
     critic: cfg.critic,
     renderer: cfg.renderer,
     previewServer: cfg.previewServer ?? null,

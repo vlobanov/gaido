@@ -57,6 +57,13 @@
       "when": 1780568509963,
       "tag": "0007_opposite_shooting_star",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781017462758,
+      "tag": "0008_short_siren",
+      "breakpoints": true
     }
   ]
 }

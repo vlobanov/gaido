@@ -8,7 +8,19 @@ export type NodeStatus =
 
 export type RunStatus = NodeStatus;
 
-export type NodeKind = 'coder' | 'critique';
+export type NodeKind = 'coder' | 'critique' | 'config';
+
+/**
+ * Session handling for the coder spawned beneath a config node (and for the
+ * config node's own record of what it did):
+ * - `retain` — resume the branch's existing coder session under the new coder.
+ *   Only valid when the new coder is session-compatible (same adapter `kind`)
+ *   with the session being resumed. Wired like Continue (shared branch anchor).
+ * - `reset`  — start a fresh session from the current code. Wired like Fork
+ *   (own branch off the ancestor coder's tip). The only option for an
+ *   incompatible switch (e.g. claude-code → a different tool).
+ */
+export type SessionPolicy = 'retain' | 'reset';
 
 export type ArtifactKind = 'code' | 'video' | 'thumbnail' | 'frame' | 'log';
 
@@ -45,7 +57,8 @@ export interface RunError {
 }
 
 export interface AdapterConfigSnapshot {
-  coder: { kind: string; args?: unknown };
+  /** `args.name` records which named coder from the registry actually ran. */
+  coder: { kind: string; args?: { name?: string } };
   critic: { kind: string; args?: unknown };
   renderer: { kind: string; args?: unknown };
 }

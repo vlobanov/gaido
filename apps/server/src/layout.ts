@@ -10,6 +10,10 @@ const GAP = 40;
 // instruction (~69px) + footer row (~33px) + borders.
 export const CODER_CARD_HEIGHT = 360;
 
+// Config (coder-switch) card height: a compact marker — header + one
+// coder/session line + borders. Mirrors ConfigCard.tsx in apps/web.
+export const CONFIG_CARD_HEIGHT = 100;
+
 // CritiqueCard rendered height, estimated from content.
 const CRIT_HEADER = 37;
 const CRIT_PADDING_Y = 24;
@@ -129,7 +133,9 @@ export function layoutCanvasNodes(
     const h =
       node.kind === 'coder'
         ? CODER_CARD_HEIGHT
-        : critiqueCardHeight(critiqueByNodeId.get(id) ?? null);
+        : node.kind === 'config'
+          ? CONFIG_CARD_HEIGHT
+          : critiqueCardHeight(critiqueByNodeId.get(id) ?? null);
     const nextY = y + h + GAP;
     for (const k of childrenById.get(id) ?? []) {
       assignY(k.id, nextY);

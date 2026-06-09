@@ -25,7 +25,7 @@ export interface GaidoDebug {
   trigger: {
     createRoot(
       instruction: string,
-      opts?: { skeletonName?: string }
+      opts?: { skeletonName?: string; coderName?: string }
     ): Promise<unknown>;
     createCanvas(name?: string): Promise<unknown>;
     /**
@@ -37,8 +37,28 @@ export interface GaidoDebug {
     /** Start the first run for an idle critique node (or retry a terminal one). */
     runCritique(critiqueNodeId: string): Promise<unknown>;
     select(nodeId: string | null): void;
-    /** Retry a node; `prompt` (coder nodes only) is injected into the re-run. */
-    retry(nodeId: string, prompt?: string): Promise<unknown>;
+    /**
+     * Retry a node; `prompt` (coder nodes only) is injected into the re-run.
+     * `coderName` swaps the coder/model — only session-compatible adapters
+     * when the branch has a live session.
+     */
+    retry(
+      nodeId: string,
+      prompt?: string,
+      coderName?: string
+    ): Promise<unknown>;
+    /**
+     * Switch coder mid-graph: inserts a `config` node under the critique and
+     * spawns one coder under it wired to the session policy, then runs it.
+     */
+    switchCoder(
+      critiqueNodeId: string,
+      opts: {
+        coderName: string;
+        sessionPolicy: 'retain' | 'reset';
+        instruction: string;
+      }
+    ): Promise<unknown>;
     cancel(nodeId: string): Promise<unknown>;
     delete(nodeId: string): Promise<unknown>;
   };
@@ -109,6 +129,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
   const createRoot = trpc.nodes.createRoot.useMutation();
   const createChild = trpc.nodes.createChild.useMutation();
   const retry = trpc.nodes.retry.useMutation();
+  const switchCoder = trpc.nodes.switchCoder.useMutation();
   const cancel = trpc.nodes.cancel.useMutation();
   const deleteNode = trpc.nodes.delete.useMutation();
   const createCanvas = trpc.canvases.create.useMutation();
@@ -181,12 +202,13 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
       trigger: {
         async createRoot(
           instruction: string,
-          opts?: { skeletonName?: string }
+          opts?: { skeletonName?: string; coderName?: string }
         ) {
           const result = await createRoot.mutateAsync({
             instruction,
             canvasId: canvasIdRef.current,
             ...(opts?.skeletonName ? { skeletonName: opts.skeletonName } : {}),
+            ...(opts?.coderName ? { coderName: opts.coderName } : {}),
           });
           await utils.nodes.list.invalidate();
           return result;
@@ -235,8 +257,29 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         select(nodeId: string | null) {
           useUiStore.getState().setSelectedNodeId(nodeId);
         },
-        async retry(nodeId: string, prompt?: string) {
-          const result = await retry.mutateAsync({ nodeId, prompt });
+        async retry(nodeId: string, prompt?: string, coderName?: string) {
+          const result = await retry.mutateAsync({
+            nodeId,
+            prompt,
+            ...(coderName ? { coderName } : {}),
+          });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
+        async switchCoder(
+          critiqueNodeId: string,
+          opts: {
+            coderName: string;
+            sessionPolicy: 'retain' | 'reset';
+            instruction: string;
+          }
+        ) {
+          const result = await switchCoder.mutateAsync({
+            critiqueNodeId,
+            coderName: opts.coderName,
+            sessionPolicy: opts.sessionPolicy,
+            instruction: opts.instruction,
+          });
           await utils.nodes.list.invalidate();
           return result;
         },
@@ -281,7 +324,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         delete window.__gaido;
       }
     };
-  }, [utils, createRoot, createChild, retry, cancel, deleteNode, createCanvas, setLocation]);
+  }, [utils, createRoot, createChild, retry, switchCoder, cancel, deleteNode, createCanvas, setLocation]);
 
   return null;
 }

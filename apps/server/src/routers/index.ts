@@ -6,6 +6,7 @@ import { systemRouter } from './system.js';
 import { lessonsRouter } from './lessons.js';
 import { canvasesRouter } from './canvases.js';
 import { skeletonsRouter } from './skeletons.js';
+import { codersRouter } from './coders.js';
 import { referencesRouter } from './references.js';
 
 export const appRouter = router({
@@ -16,6 +17,7 @@ export const appRouter = router({
   lessons: lessonsRouter,
   canvases: canvasesRouter,
   skeletons: skeletonsRouter,
+  coders: codersRouter,
   references: referencesRouter,
 });
 

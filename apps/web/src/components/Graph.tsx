@@ -10,9 +10,11 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 import type { CoderMessage, NodeKind, NodeStatus } from '@gaido/core';
+import type { SessionPolicy } from '@gaido/core';
 import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
 import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';
+import { ConfigCard, type ConfigCardData } from './ConfigCard';
 
 interface GaidoNode {
   id: string;
@@ -24,6 +26,8 @@ interface GaidoNode {
   status: NodeStatus;
   isFavorite: boolean;
   currentRunId: string | null;
+  coderName: string | null;
+  sessionPolicy: SessionPolicy | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
   previewUrl: string | null;
@@ -45,11 +49,12 @@ interface GraphProps {
   nodes: GaidoNode[];
 }
 
-type CardData = CoderCardData | CritiqueCardData;
+type CardData = CoderCardData | CritiqueCardData | ConfigCardData;
 
 const nodeTypes: NodeTypes = {
   coder: CoderCard,
   critique: CritiqueCard,
+  config: ConfigCard,
 };
 
 export function Graph({ nodes: serverNodes }: GraphProps) {
@@ -106,6 +111,8 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           status: n.status,
           isFavorite: n.isFavorite,
           currentRunId: n.currentRunId,
+          coderName: n.coderName,
+          sessionPolicy: n.sessionPolicy,
           thumbnailArtifactId: n.thumbnailArtifactId,
           videoArtifactId: n.videoArtifactId,
           previewUrl: n.previewUrl,

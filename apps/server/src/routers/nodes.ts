@@ -12,6 +12,7 @@ import {
   critiqueCardHeight,
   layoutCanvasNodes,
   nextChildY,
+  CONFIG_CARD_HEIGHT,
   SIBLING_X_STEP,
 } from '../layout.js';
 import {
@@ -42,6 +43,35 @@ async function bindInlineReferences(
     // eslint-disable-next-line no-console
     console.warn(`[references] inline bind failed for ${nodeId}:`, err);
   }
+}
+
+/**
+ * First non-null `coderName` walking up from `node` (self included). Mirrors
+ * the orchestrator's resolution: root pick / config-node switch / retry swap
+ * set it; everything else inherits down lineage. Null → registry default.
+ */
+function resolveCoderName(
+  db: Db,
+  node: Pick<Node, 'id' | 'parentId' | 'coderName'>
+): string | null {
+  let cursor: Pick<Node, 'id' | 'parentId' | 'coderName'> | null = node;
+  const seen = new Set<string>();
+  while (cursor) {
+    if (cursor.coderName) return cursor.coderName;
+    if (!cursor.parentId || seen.has(cursor.id)) break;
+    seen.add(cursor.id);
+    cursor =
+      db
+        .select({
+          id: schema.nodes.id,
+          parentId: schema.nodes.parentId,
+          coderName: schema.nodes.coderName,
+        })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, cursor.parentId))
+        .get() ?? null;
+  }
+  return null;
 }
 
 /** Nearest coder at or above `startParentId`, skipping critiques. */
@@ -107,6 +137,8 @@ export const nodesRouter = router({
           status: schema.nodes.status,
           currentRunId: schema.nodes.currentRunId,
           sessionId: schema.nodes.sessionId,
+          coderName: schema.nodes.coderName,
+          sessionPolicy: schema.nodes.sessionPolicy,
           isFavorite: schema.nodes.isFavorite,
           createdAt: schema.nodes.createdAt,
           updatedAt: schema.nodes.updatedAt,
@@ -150,25 +182,57 @@ export const nodesRouter = router({
       // that have continued descendants — cheaper than another round-trip
       // and keeps the rule colocated with the rejection in `retry`.
       const retryable = node.kind === 'coder' ? isLeafOfBranch(ctx.db, node) : true;
-      // `hasSession` reports whether the coder's branch has a live Claude
-      // Code session. Continuations don't carry their own session_id — the
-      // session lives on the anchor row — so the UI can't read it off
-      // `node.sessionId` directly. The Reply textbox uses this to gate
-      // input; the server-side `reply` mutation mirrors the same check.
+      // `hasSession` reports whether this node's branch has a live coder
+      // session. The session lives on the branch anchor, so we resolve the
+      // relevant coder (the node itself, or — for critique/config nodes — the
+      // nearest ancestor coder) and read its anchor's session_id. The Reply
+      // textbox gates input on it, and the Switch-coder modal gates the
+      // "retain session" option on it (mirrored server-side).
       let hasSession = false;
-      if (node.kind === 'coder') {
-        if (node.sessionId) {
-          hasSession = true;
-        } else if (node.branchAnchorId) {
-          const anchor = ctx.db
-            .select({ sessionId: schema.nodes.sessionId })
-            .from(schema.nodes)
-            .where(eq(schema.nodes.id, node.branchAnchorId))
-            .get();
-          hasSession = !!anchor?.sessionId;
+      {
+        const branchCoderId =
+          node.kind === 'coder'
+            ? node.id
+            : resolveAncestorCoderId(ctx.db, node.parentId);
+        const branchCoder =
+          branchCoderId == null
+            ? null
+            : branchCoderId === node.id
+              ? node
+              : ctx.db
+                  .select()
+                  .from(schema.nodes)
+                  .where(eq(schema.nodes.id, branchCoderId))
+                  .get() ?? null;
+        if (branchCoder) {
+          const anchorId = branchCoder.branchAnchorId ?? branchCoder.id;
+          if (anchorId === branchCoder.id) {
+            hasSession = !!branchCoder.sessionId;
+          } else {
+            const anchor = ctx.db
+              .select({ sessionId: schema.nodes.sessionId })
+              .from(schema.nodes)
+              .where(eq(schema.nodes.id, anchorId))
+              .get();
+            hasSession = !!anchor?.sessionId;
+          }
         }
       }
-      return { node, currentRun, retryable, hasSession };
+      // The coder this node resolves to (lineage walk → registry default) plus
+      // its adapter kind. The Retry/Switch modals use the kind to gate
+      // session-retaining swaps to compatible adapters.
+      const resolvedCoderName =
+        resolveCoderName(ctx.db, node) ?? ctx.config.defaultCoderName;
+      const resolvedCoderKind =
+        ctx.config.coders.get(resolvedCoderName)?.kind ?? null;
+      return {
+        node,
+        currentRun,
+        retryable,
+        hasSession,
+        resolvedCoderName,
+        resolvedCoderKind,
+      };
     }),
 
   createRoot: publicProcedure
@@ -178,10 +242,17 @@ export const nodesRouter = router({
         position: positionSchema,
         canvasId: z.string().optional(),
         skeletonName: z.string().optional(),
+        coderName: z.string().optional(),
         references: z.array(referenceInputSchema).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.coderName && !ctx.config.coders.has(input.coderName)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `unknown coder '${input.coderName}'`,
+        });
+      }
       let canvasId = input.canvasId;
       if (!canvasId) {
         const defaultCanvas = ctx.db
@@ -229,6 +300,7 @@ export const nodesRouter = router({
           instruction: input.instruction,
           status: 'idle',
           skeletonName: input.skeletonName ?? null,
+          coderName: input.coderName ?? null,
           isFavorite: false,
           createdAt: now,
           updatedAt: now,
@@ -340,7 +412,18 @@ export const nodesRouter = router({
     }),
 
   retry: publicProcedure
-    .input(z.object({ nodeId: z.string(), prompt: z.string().optional() }))
+    .input(
+      z.object({
+        nodeId: z.string(),
+        prompt: z.string().optional(),
+        // Swap the coder/model for this re-run (e.g. sonnet → opus). The new
+        // coder sticks on the node and is inherited by descendants. Gated to
+        // session-compatible adapters when the branch already has a live
+        // session — see the validation below. Use a config switch for an
+        // incompatible swap (it starts a fresh session).
+        coderName: z.string().optional(),
+      })
+    )
     .mutation(({ ctx, input }) => {
       const node = ctx.db
         .select()
@@ -365,6 +448,47 @@ export const nodesRouter = router({
           message:
             'this coder has continued descendants on its branch — continue or fork instead of retry',
         });
+      }
+      if (input.coderName) {
+        if (node.kind !== 'coder') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'coder swap is only valid on coder nodes',
+          });
+        }
+        if (!ctx.config.coders.has(input.coderName)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `unknown coder '${input.coderName}'`,
+          });
+        }
+        // A live session can only be resumed under a same-kind adapter.
+        const anchorId = node.branchAnchorId ?? node.id;
+        const anchor =
+          anchorId === node.id
+            ? node
+            : ctx.db
+                .select()
+                .from(schema.nodes)
+                .where(eq(schema.nodes.id, anchorId))
+                .get() ?? node;
+        if (anchor.sessionId) {
+          const currentName =
+            resolveCoderName(ctx.db, node) ?? ctx.config.defaultCoderName;
+          const currentKind = ctx.config.coders.get(currentName)?.kind;
+          const nextKind = ctx.config.coders.get(input.coderName)?.kind;
+          if (currentKind && nextKind && currentKind !== nextKind) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `cannot resume a ${currentKind} session under '${input.coderName}' (${nextKind}) — switch coder with a config node to start a fresh session`,
+            });
+          }
+        }
+        ctx.db
+          .update(schema.nodes)
+          .set({ coderName: input.coderName, updatedAt: Date.now() })
+          .where(eq(schema.nodes.id, node.id))
+          .run();
       }
       // An optional `prompt` lets the artist steer the re-run — e.g. after a
       // failure. It's carried as the run's `artistFollowUp`: on a coder with
@@ -558,6 +682,195 @@ export const nodesRouter = router({
         .where(eq(schema.nodes.id, id))
         .get()!;
       return { node, run };
+    }),
+
+  /**
+   * Switch coder mid-graph. Inserts a `config` node under the critique that
+   * records the chosen coder + session policy (a settled marker — no run),
+   * then spawns one coder beneath it wired to that policy and starts it:
+   *
+   * - `retain` → the coder shares the branch anchor (Continue semantics): it
+   *   resumes the existing session under the new coder. Only valid when the
+   *   new coder is session-compatible (same adapter `kind`) and a session
+   *   exists.
+   * - `reset`  → the coder owns a fresh branch off the parent coder's tip
+   *   (Fork semantics): same code, brand-new session. The only option for an
+   *   incompatible switch.
+   *
+   * The spawned coder leaves `coderName` null and inherits the config node's
+   * choice by lineage walk, so descendants keep the new coder until the next
+   * config node.
+   */
+  switchCoder: publicProcedure
+    .input(
+      z.object({
+        critiqueNodeId: z.string(),
+        coderName: z.string(),
+        sessionPolicy: z.enum(['retain', 'reset']),
+        instruction: z.string().min(1),
+        references: z.array(referenceInputSchema).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const critique = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.critiqueNodeId))
+        .get();
+      if (!critique) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `node ${input.critiqueNodeId}`,
+        });
+      }
+      if (critique.kind !== 'critique') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'switch coder requires a critique node',
+        });
+      }
+      if (!critique.parentId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'critique node has no parent coder',
+        });
+      }
+      if (!ctx.config.coders.has(input.coderName)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `unknown coder '${input.coderName}'`,
+        });
+      }
+      const parentCoder = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, critique.parentId))
+        .get();
+      if (!parentCoder) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `parent coder ${critique.parentId}`,
+        });
+      }
+      const anchorId = parentCoder.branchAnchorId ?? parentCoder.id;
+      const anchor =
+        anchorId === parentCoder.id
+          ? parentCoder
+          : ctx.db
+              .select()
+              .from(schema.nodes)
+              .where(eq(schema.nodes.id, anchorId))
+              .get() ?? parentCoder;
+
+      // Retain resumes the branch's session under the new coder — only valid
+      // when a session exists and the new coder is session-compatible.
+      if (input.sessionPolicy === 'retain') {
+        if (!anchor.sessionId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'no live session to retain — choose reset',
+          });
+        }
+        const currentName =
+          resolveCoderName(ctx.db, parentCoder) ?? ctx.config.defaultCoderName;
+        const currentKind = ctx.config.coders.get(currentName)?.kind;
+        const nextKind = ctx.config.coders.get(input.coderName)?.kind;
+        if (currentKind && nextKind && currentKind !== nextKind) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `cannot retain a ${currentKind} session under '${input.coderName}' (${nextKind}) — choose reset to start a fresh session`,
+          });
+        }
+      }
+
+      const now = Date.now();
+      // Spread among ALL the critique's existing children (forks, continues,
+      // and prior config switches) so a second switch doesn't stack on top.
+      const existingChildren = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.parentId, critique.id))
+        .all();
+      const rightmost = existingChildren.length
+        ? Math.max(...existingChildren.map((c) => c.positionX))
+        : critique.positionX - SIBLING_X_STEP;
+      const x = rightmost + SIBLING_X_STEP;
+      const critiqueRun = critique.currentRunId
+        ? ctx.db
+            .select()
+            .from(schema.runs)
+            .where(eq(schema.runs.id, critique.currentRunId))
+            .get() ?? null
+        : null;
+      const configY = nextChildY(
+        critique.positionY,
+        critiqueCardHeight(critiqueRun?.critique)
+      );
+
+      // 1. Config node — a settled marker with no run.
+      const configId = newNodeId();
+      const policyLabel =
+        input.sessionPolicy === 'retain' ? 'retain session' : 'reset session';
+      ctx.db
+        .insert(schema.nodes)
+        .values({
+          id: configId,
+          parentId: critique.id,
+          canvasId: parentCoder.canvasId,
+          kind: 'config',
+          positionX: x,
+          positionY: configY,
+          instruction: `Switch to ${input.coderName} · ${policyLabel}`,
+          coderName: input.coderName,
+          sessionPolicy: input.sessionPolicy,
+          status: 'done',
+          isFavorite: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      // 2. Coder under the config node, wired to the policy. Leaves coderName
+      // null — it inherits the config node's choice by lineage walk.
+      const coderId = newNodeId();
+      ctx.db
+        .insert(schema.nodes)
+        .values({
+          id: coderId,
+          parentId: configId,
+          canvasId: parentCoder.canvasId,
+          kind: 'coder',
+          positionX: x,
+          positionY: nextChildY(configY, CONFIG_CARD_HEIGHT),
+          instruction: input.instruction,
+          // retain → share the anchor (resume session); reset → own branch.
+          ...(input.sessionPolicy === 'retain'
+            ? { branchAnchorId: anchorId }
+            : {}),
+          status: 'idle',
+          isFavorite: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      // Carry the parent coder's references onto the new coder, then layer on
+      // any attached in the switch modal.
+      inheritReferences(ctx, parentCoder.id, coderId);
+      await bindInlineReferences(ctx, coderId, input.references);
+
+      const run = ctx.orchestrator.startRun(coderId);
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, coderId))
+        .get()!;
+      const configNode = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, configId))
+        .get()!;
+      return { node, configNode, run };
     }),
 
   cancel: publicProcedure

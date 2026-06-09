@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot } from './types.js';
+import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot, SessionPolicy } from './types.js';
 import type { EventPayload } from './events.js';
 import type { CoderMessage } from './prompts.js';
 
@@ -46,6 +46,22 @@ export const nodes = sqliteTable(
      * leave this NULL.
      */
     skeletonName: text('skeleton_name'),
+    /**
+     * Selected coder name from the config's coder registry. Set where a coder
+     * is *chosen*: root coders (seed picker), config nodes (mid-graph switch),
+     * and coder nodes whose model was swapped on Retry. NULL elsewhere — the
+     * orchestrator resolves the effective coder by walking up the parent chain
+     * to the first non-null value (else the registry default). Same
+     * inherit-down-lineage shape as `skeletonName`, with config nodes as extra
+     * injection points.
+     */
+    coderName: text('coder_name'),
+    /**
+     * Config-node only: how the coder spawned beneath it treats the branch's
+     * session — `'retain'` (resume, wired like Continue) or `'reset'` (fresh,
+     * wired like Fork). NULL on coder/critique nodes.
+     */
+    sessionPolicy: text('session_policy').$type<SessionPolicy>(),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
