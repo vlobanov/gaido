@@ -155,7 +155,6 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           <div className="flex items-center gap-3">
             <StatusBadge
               status={status}
-              kind="coder"
               timing={currentRun ?? null}
               size="md"
             />
@@ -498,7 +497,6 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
         <div className="flex items-center justify-between">
           <StatusBadge
             status={status}
-            kind="critique"
             timing={currentRun ?? null}
             size="md"
           />

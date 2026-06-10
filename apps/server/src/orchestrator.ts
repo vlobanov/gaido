@@ -31,6 +31,7 @@ import type { WorkspaceManager } from './workspace.js';
 import type { Paths } from './paths.js';
 import type { PreviewServerHandle } from './preview-server.js';
 import { runChecks, formatFollowUp } from './checks.js';
+import { Semaphore } from './semaphore.js';
 import { snapshotClaudeSession } from './session-snapshot.js';
 import { materializeReferences } from './references.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
@@ -65,6 +66,18 @@ export class Orchestrator {
   private readonly paths: Paths;
   private readonly previewServer: PreviewServerHandle | null;
   private readonly active = new Map<string, AbortController>();
+  /**
+   * Concurrency throttles (`concurrency` in gaido.config.ts). `agentSlots`
+   * caps simultaneous LLM phases — coding and critiquing both spawn an agent
+   * subprocess; `renderSlots` caps simultaneous render phases (headless
+   * Chromium + ffmpeg). Sized once at startup from the project config —
+   * process-global, deliberately not overridable per skeleton. A run waiting
+   * for a slot is `running` with no phase started, which the UI shows as
+   * "Queued"; phase timestamps are stamped after acquisition, so queue wait
+   * never pollutes phase durations.
+   */
+  private readonly agentSlots: Semaphore;
+  private readonly renderSlots: Semaphore;
 
   constructor(deps: OrchestratorDeps) {
     this.db = deps.db;
@@ -74,6 +87,8 @@ export class Orchestrator {
     this.workspace = deps.workspace;
     this.paths = deps.paths;
     this.previewServer = deps.previewServer;
+    this.agentSlots = new Semaphore(deps.config.concurrency.agents);
+    this.renderSlots = new Semaphore(deps.config.concurrency.renderers);
   }
 
   /**
@@ -983,6 +998,11 @@ export class Orchestrator {
       .run();
   }
 
+  /** The semaphore gating a phase: LLM phases share `agentSlots`. */
+  private slotsFor(phase: RunPhase): Semaphore {
+    return phase === 'rendering' ? this.renderSlots : this.agentSlots;
+  }
+
   private async runPhase(
     runId: string,
     nodeId: string,
@@ -992,6 +1012,31 @@ export class Orchestrator {
     body: () => Promise<void>
   ): Promise<void> {
     if (signal.aborted) throw makeAbortError(phase);
+
+    // Throttle: wait for a concurrency slot before the phase starts. The run
+    // is already `running` with no phase timestamp — the UI reads that gap as
+    // "Queued". Acquire rejects only on abort (run cancelled while queued).
+    let release: () => void;
+    try {
+      release = await this.slotsFor(phase).acquire(signal);
+    } catch {
+      throw makeAbortError(phase);
+    }
+
+    try {
+      await this.runPhaseBody(runId, nodeId, canvasId, phase, body);
+    } finally {
+      release();
+    }
+  }
+
+  private async runPhaseBody(
+    runId: string,
+    nodeId: string,
+    canvasId: string,
+    phase: RunPhase,
+    body: () => Promise<void>
+  ): Promise<void> {
     const startedAt = Date.now();
     this.db
       .update(schema.runs)

@@ -66,7 +66,7 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
         <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
           Critique
         </span>
-        <StatusBadge status={d.status} kind="critique" timing={d} />
+        <StatusBadge status={d.status} timing={d} />
       </div>
 
       <div className="min-h-[5rem] px-4 py-3">

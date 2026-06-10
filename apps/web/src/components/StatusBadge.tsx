@@ -1,4 +1,4 @@
-import type { NodeKind, NodeStatus } from '@gaido/core';
+import type { NodeStatus } from '@gaido/core';
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   idle: 'Idle',
@@ -59,35 +59,35 @@ const PHASE_LABEL: Record<'coding' | 'rendering' | 'critiquing', string> = {
 
 /**
  * Compute the badge label for a node. Translates `running` to a phase-aware
- * label using `kind` + timing columns from `nodes.list`.
+ * label using timing columns from `nodes.list`.
  */
 export function statusLabel(
   status: NodeStatus,
-  kind: NodeKind,
   timing: PhaseTiming | null | undefined
 ): string {
   if (status !== 'running') return STATUS_LABEL[status];
   const phase = activePhase(timing);
   if (phase) return PHASE_LABEL[phase];
-  // No phase has started yet — startRun just inserted the row.
-  return kind === 'critique' ? 'Critiquing' : 'Starting';
+  // Running with no phase in flight = waiting for a concurrency slot
+  // (`concurrency` in gaido.config.ts) — either before the first phase or
+  // between coding and rendering. Without a backlog this shows only for the
+  // instant between startRun and the first phase stamp.
+  return 'Queued';
 }
 
 interface StatusBadgeProps {
   status: NodeStatus;
-  kind?: NodeKind;
   timing?: PhaseTiming | null;
   size?: 'sm' | 'md';
 }
 
 export function StatusBadge({
   status,
-  kind = 'coder',
   timing = null,
   size = 'sm',
 }: StatusBadgeProps) {
   const sizeCls = size === 'md' ? 'text-sm' : 'text-xs';
-  const label = statusLabel(status, kind, timing);
+  const label = statusLabel(status, timing);
   return (
     <span
       data-testid="status-badge"

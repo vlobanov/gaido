@@ -120,7 +120,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <PhaseTicks data={d} active={active} done={done} failed={failed} />
-          <StatusBadge status={d.status} kind="coder" timing={d} />
+          <StatusBadge status={d.status} timing={d} />
         </div>
         <div className="flex items-center gap-2">
           {done && d.previewUrl ? <PreviewLink href={d.previewUrl} /> : null}
@@ -200,7 +200,7 @@ function MessageOnlyCard({
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
-        <StatusBadge status={d.status} kind="coder" timing={d} />
+        <StatusBadge status={d.status} timing={d} />
         <FavoriteToggle isFavorite={d.isFavorite} onToggle={onToggleFavorite} />
       </div>
 
