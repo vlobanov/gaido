@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
-import { schema, canvasId as newCanvasId } from '@gaido/core';
-import type { Canvas } from '@gaido/core/schema';
+import { schema, canvasId as newCanvasId } from '@vadimlobanov/gaido-core';
+import type { Canvas } from '@vadimlobanov/gaido-core/schema';
 import type { Db } from './db.js';
 
 export function seedDefaultCanvas(db: Db): Canvas {

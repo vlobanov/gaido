@@ -1,4 +1,4 @@
-import type { Critique, NodeKind } from '@gaido/core';
+import type { Critique, NodeKind } from '@vadimlobanov/gaido-core';
 
 // Card geometry constants. Mirrors the CSS in apps/web (CoderCard, CritiqueCard).
 // Brittle by design — if those components change padding, line height, or the

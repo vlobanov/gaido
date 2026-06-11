@@ -1,5 +1,5 @@
 {
-  "name": "@gaido/adapter-claude-code",
+  "name": "@vadimlobanov/gaido-adapter-claude-code",
   "version": "0.1.0",
   "description": "Claude Code CLI coder and critic adapters for Gaido.",
   "license": "MIT",
@@ -29,7 +29,7 @@
     "prepack": "cp ../../LICENSE ."
   },
   "dependencies": {
-    "@gaido/core": "workspace:*"
+    "@vadimlobanov/gaido-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startServer } from '@gaido/server';
+import { startServer } from '@vadimlobanov/gaido-server';
 import open from 'open';
 import pc from 'picocolors';
 
@@ -22,11 +22,11 @@ function buildFrameworkAlias(): Record<string, string> {
     gaido: resolve(here, '..', 'index.ts'),
   };
   for (const pkg of [
-    '@gaido/core',
-    '@gaido/adapter-claude-code',
-    '@gaido/adapter-codex',
-    '@gaido/adapter-openrouter',
-    '@gaido/adapter-playwright-renderer',
+    '@vadimlobanov/gaido-core',
+    '@vadimlobanov/gaido-adapter-claude-code',
+    '@vadimlobanov/gaido-adapter-codex',
+    '@vadimlobanov/gaido-adapter-openrouter',
+    '@vadimlobanov/gaido-adapter-playwright-renderer',
   ]) {
     try {
       alias[pkg] = requireFromCli.resolve(pkg);

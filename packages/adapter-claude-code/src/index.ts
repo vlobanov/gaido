@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { Coder, CoderInput, CoderResult, RunContext } from '@gaido/core';
+import type { Coder, CoderInput, CoderResult, RunContext } from '@vadimlobanov/gaido-core';
 
 export { claudeCodeCritic, type ClaudeCodeCriticOpts } from './critic.js';
 

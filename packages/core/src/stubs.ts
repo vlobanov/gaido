@@ -71,7 +71,7 @@ export function stubCritic(): Critic {
           strengths: ['Renders without errors', 'Honors the prompt shape'],
           weaknesses: ['No real evaluation happened — this is canned output'],
           suggestions: [
-            'Wire up @gaido/adapter-claude-code or another Critic implementation',
+            'Wire up @vadimlobanov/gaido-adapter-claude-code or another Critic implementation',
             'Iterate on the chosen skeleton\'s CLAUDE.md to guide the coder',
           ],
           proposedRules: [

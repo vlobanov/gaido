@@ -1,5 +1,5 @@
 {
-  "name": "@gaido/adapter-playwright-renderer",
+  "name": "@vadimlobanov/gaido-adapter-playwright-renderer",
   "version": "0.1.0",
   "description": "Deterministic Playwright + ffmpeg video renderer for Gaido.",
   "license": "MIT",
@@ -29,7 +29,7 @@
     "prepack": "cp ../../LICENSE ."
   },
   "dependencies": {
-    "@gaido/core": "workspace:*",
+    "@vadimlobanov/gaido-core": "workspace:*",
     "playwright": "^1.49.0"
   },
   "devDependencies": {

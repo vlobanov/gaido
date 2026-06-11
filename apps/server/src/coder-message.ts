@@ -4,7 +4,7 @@ import {
   MESSAGE_FILENAME,
   type CoderMessage,
   type CoderMessageKind,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 
 const KINDS: readonly CoderMessageKind[] = ['question', 'limitation', 'note'];
 

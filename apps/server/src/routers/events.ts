@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { schema } from '@gaido/core';
-import type { PersistedEvent } from '@gaido/core';
+import { schema } from '@vadimlobanov/gaido-core';
+import type { PersistedEvent } from '@vadimlobanov/gaido-core';
 import { asc, eq } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
 

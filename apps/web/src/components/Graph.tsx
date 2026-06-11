@@ -9,8 +9,8 @@ import {
   type NodeMouseHandler,
   type NodeTypes,
 } from '@xyflow/react';
-import type { CoderMessage, NodeKind, NodeStatus } from '@gaido/core';
-import type { SessionPolicy } from '@gaido/core';
+import type { CoderMessage, NodeKind, NodeStatus } from '@vadimlobanov/gaido-core';
+import type { SessionPolicy } from '@vadimlobanov/gaido-core';
 import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
 import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';

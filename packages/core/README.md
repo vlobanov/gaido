@@ -1,4 +1,4 @@
-# @gaido/core
+# @vadimlobanov/gaido-core
 
 Schema, types, adapter interfaces (`Coder` / `Critic` / `Renderer`), and config primitives for [Gaido](https://github.com/vlobanov/gaido) — a lab notebook for creative-coding agents.
 

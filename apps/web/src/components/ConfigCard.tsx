@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { SessionPolicy } from '@gaido/core';
+import type { SessionPolicy } from '@vadimlobanov/gaido-core';
 
 export interface ConfigCardData {
   id: string;

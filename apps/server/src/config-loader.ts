@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
-import { defaults, resolveCoderRegistry } from '@gaido/core';
-import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@gaido/core';
+import { defaults, resolveCoderRegistry } from '@vadimlobanov/gaido-core';
+import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@vadimlobanov/gaido-core';
 
 export interface ResolvedConfig {
   name?: string;

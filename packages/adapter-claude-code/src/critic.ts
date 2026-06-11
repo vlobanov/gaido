@@ -8,7 +8,7 @@ import type {
   CriticResult,
   Critique,
   RunContext,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 import type { ClaudeCodePermissionMode } from './index.js';
 
 export interface ClaudeCodeCriticOpts {

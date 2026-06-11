@@ -1,4 +1,4 @@
-# @gaido/server
+# @vadimlobanov/gaido-server
 
 The Gaido server — Fastify + tRPC + SQLite orchestrator, with the web UI bundled in. Part of [Gaido](https://github.com/vlobanov/gaido), a lab notebook for creative-coding agents.
 

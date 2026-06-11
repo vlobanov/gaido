@@ -8,8 +8,8 @@ import {
   applySkeletonOverlay,
   GAIDO_PROTOCOL_PREAMBLE,
   MESSAGE_FILENAME,
-} from '@gaido/core';
-import type { Run, Node } from '@gaido/core/schema';
+} from '@vadimlobanov/gaido-core';
+import type { Run, Node } from '@vadimlobanov/gaido-core/schema';
 import type {
   AdapterConfigSnapshot,
   Coder,
@@ -20,7 +20,7 @@ import type {
   RunStatus,
   RunError,
   EventPayload,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 import { readCoderMessage } from './coder-message.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from './db.js';

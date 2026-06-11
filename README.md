@@ -95,7 +95,7 @@ keys.
 - **Renders are reproducible.** Headless Chromium with a faked clock steps
   through frames; ffmpeg encodes. Same code, same video.
 - **Adapters are the only pluggable surface.** Coder, critic, renderer —
-  three interfaces in `@gaido/core`. Everything else is deliberately
+  three interfaces in `@vadimlobanov/gaido-core`. Everything else is deliberately
   hardcoded.
 - **Skeletons seed roots.** Named starting points (`skeletons/<name>/`) per
   root node, so sibling roots can A/B different starting contexts. Optional

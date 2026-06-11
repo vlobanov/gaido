@@ -1,5 +1,5 @@
 {
-  "name": "@gaido/core",
+  "name": "@vadimlobanov/gaido-core",
   "version": "0.1.0",
   "description": "Schema, types, adapter interfaces, and config primitives for Gaido.",
   "license": "MIT",

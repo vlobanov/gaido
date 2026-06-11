@@ -1,5 +1,5 @@
-import { schema } from '@gaido/core';
-import type { NodeStatus } from '@gaido/core';
+import { schema } from '@vadimlobanov/gaido-core';
+import type { NodeStatus } from '@vadimlobanov/gaido-core';
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from './db.js';
 

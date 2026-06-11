@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
-import type { SkeletonConfig } from '@gaido/core';
+import type { SkeletonConfig } from '@vadimlobanov/gaido-core';
 import {
   resolveSkeleton,
   findSkeletonConfigFile,

@@ -8,7 +8,7 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import { QueryClient as RQClient } from '@tanstack/react-query';
 import { trpcHttpUrl, wsUrl } from './url';
-import type { AppRouter } from '@gaido/server';
+import type { AppRouter } from '@vadimlobanov/gaido-server';
 
 export const trpc = createTRPCReact<AppRouter>();
 

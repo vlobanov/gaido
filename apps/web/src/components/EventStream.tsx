@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { EventPayload, PersistedEvent, RunPhase } from '@gaido/core';
+import type { EventPayload, PersistedEvent, RunPhase } from '@vadimlobanov/gaido-core';
 import { trpc } from '../lib/trpc';
 
 interface StreamItem {

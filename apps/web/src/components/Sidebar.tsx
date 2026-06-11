@@ -5,7 +5,7 @@ import type {
   EventPayload,
   NodeKind,
   NodeStatus,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';

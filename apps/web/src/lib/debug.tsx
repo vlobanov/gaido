@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
-import type { NodeStatus, PersistedEvent } from '@gaido/core';
+import type { NodeStatus, PersistedEvent } from '@vadimlobanov/gaido-core';
 import type { inferRouterOutputs } from '@trpc/server';
-import type { AppRouter } from '@gaido/server';
+import type { AppRouter } from '@vadimlobanov/gaido-server';
 import { trpc } from './trpc';
 import { useUiStore } from '../store';
 import { canvasHref } from './canvas-url';

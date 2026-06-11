@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { eventId, schema } from '@gaido/core';
-import type { EventPayload, PersistedEvent } from '@gaido/core';
+import { eventId, schema } from '@vadimlobanov/gaido-core';
+import type { EventPayload, PersistedEvent } from '@vadimlobanov/gaido-core';
 import type { Db } from './db.js';
 
 const ALL = '__all__';

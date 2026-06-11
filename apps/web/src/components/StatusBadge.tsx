@@ -1,4 +1,4 @@
-import type { NodeStatus } from '@gaido/core';
+import type { NodeStatus } from '@vadimlobanov/gaido-core';
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   idle: 'Idle',

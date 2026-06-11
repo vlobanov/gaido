@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { NodeStatus } from '@gaido/core';
+import type { NodeStatus } from '@vadimlobanov/gaido-core';
 import { StatusBadge, isActiveStatus, type PhaseTiming } from './StatusBadge';
 import { trpc } from '../lib/trpc';
 

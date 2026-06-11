@@ -7,7 +7,7 @@ import type {
   RenderResult,
   Renderer,
   RunContext,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 
 export interface PlaywrightRecordRendererOpts {
   /**

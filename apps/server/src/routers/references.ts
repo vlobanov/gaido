@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { schema } from '@gaido/core';
+import { schema } from '@vadimlobanov/gaido-core';
 import { eq } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
 import {

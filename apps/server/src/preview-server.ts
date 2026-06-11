@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { PreviewServerConfig } from '@gaido/core';
+import type { PreviewServerConfig } from '@vadimlobanov/gaido-core';
 
 export interface PreviewServerHandle {
   /**

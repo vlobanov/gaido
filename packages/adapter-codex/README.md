@@ -1,4 +1,4 @@
-# @gaido/adapter-codex
+# @vadimlobanov/gaido-adapter-codex
 
 OpenAI Codex CLI coder adapter for [Gaido](https://github.com/vlobanov/gaido): `codexCoder()`. Shells out to the `codex` CLI on PATH — your existing subscription and login, no extra keys.
 

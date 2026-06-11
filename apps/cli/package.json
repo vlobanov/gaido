@@ -47,12 +47,12 @@
     "prepack": "node scripts/prepack.mjs"
   },
   "dependencies": {
-    "@gaido/core": "workspace:*",
-    "@gaido/server": "workspace:*",
-    "@gaido/adapter-claude-code": "workspace:*",
-    "@gaido/adapter-codex": "workspace:*",
-    "@gaido/adapter-openrouter": "workspace:*",
-    "@gaido/adapter-playwright-renderer": "workspace:*",
+    "@vadimlobanov/gaido-core": "workspace:*",
+    "@vadimlobanov/gaido-server": "workspace:*",
+    "@vadimlobanov/gaido-adapter-claude-code": "workspace:*",
+    "@vadimlobanov/gaido-adapter-codex": "workspace:*",
+    "@vadimlobanov/gaido-adapter-openrouter": "workspace:*",
+    "@vadimlobanov/gaido-adapter-playwright-renderer": "workspace:*",
     "open": "^10.1.0",
     "picocolors": "^1.1.1",
     "tsx": "^4.19.0"

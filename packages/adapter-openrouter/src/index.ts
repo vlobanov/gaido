@@ -6,7 +6,7 @@ import type {
   CriticResult,
   Critique,
   RunContext,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 
 export interface GeminiCriticOpts {
   /**

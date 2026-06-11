@@ -5,7 +5,7 @@ import type {
   EventPayload,
   NodeStatus,
   PersistedEvent,
-} from '@gaido/core';
+} from '@vadimlobanov/gaido-core';
 import {
   StatusBadge,
   activePhase,

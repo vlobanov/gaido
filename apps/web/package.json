@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gaido/core": "workspace:*",
-    "@gaido/server": "workspace:*",
+    "@vadimlobanov/gaido-core": "workspace:*",
+    "@vadimlobanov/gaido-server": "workspace:*",
     "@tanstack/react-query": "^5.59.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",

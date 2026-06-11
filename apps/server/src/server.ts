@@ -6,7 +6,7 @@ import {
   fastifyTRPCPlugin,
   type FastifyTRPCPluginOptions,
 } from '@trpc/server/adapters/fastify';
-import { schema } from '@gaido/core';
+import { schema } from '@vadimlobanov/gaido-core';
 import { eq } from 'drizzle-orm';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

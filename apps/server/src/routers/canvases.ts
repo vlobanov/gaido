@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { asc, eq } from 'drizzle-orm';
-import { schema, canvasId as newCanvasId } from '@gaido/core';
+import { schema, canvasId as newCanvasId } from '@vadimlobanov/gaido-core';
 import { router, publicProcedure } from '../trpc.js';
 import {
   nextUntitledName,
