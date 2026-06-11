@@ -20,6 +20,7 @@
     "@gaido/core": "workspace:*",
     "@gaido/server": "workspace:*",
     "@gaido/adapter-claude-code": "workspace:*",
+    "@gaido/adapter-codex": "workspace:*",
     "@gaido/adapter-openrouter": "workspace:*",
     "@gaido/adapter-playwright-renderer": "workspace:*",
     "open": "^10.1.0",

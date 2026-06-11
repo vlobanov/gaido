@@ -13,6 +13,7 @@ export default defineConfig({
   //   coders: {
   //     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
   //     'cc-opus': claudeCodeCoder({ model: 'opus', effort: 'high' }),
+  //     codex: codexCoder({ effort: 'high' }),  // OpenAI Codex CLI ('codex' on PATH)
   //   },
   renderer: playwrightRenderer(),
   critic: geminiCritic(),

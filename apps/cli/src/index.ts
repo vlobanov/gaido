@@ -12,6 +12,8 @@ export type {
   ClaudeCodeCriticOpts,
   ClaudeCodePermissionMode,
 } from '@gaido/adapter-claude-code';
+export { codexCoder } from '@gaido/adapter-codex';
+export type { CodexCoderOpts, CodexSandboxMode } from '@gaido/adapter-codex';
 export {
   playwrightRenderer,
   playwrightRecordRenderer,

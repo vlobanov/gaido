@@ -1,6 +1,7 @@
 import {
   defineConfig,
   claudeCodeCoder,
+  codexCoder,
   stubCoder,
   playwrightRenderer,
   geminiCritic,
@@ -16,6 +17,7 @@ export default defineConfig({
   coders: {
     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
     'cc-opus': claudeCodeCoder({ model: 'opus' }),
+    codex: codexCoder({ effort: 'medium' }),
     stub: stubCoder(),
   },
   renderer: playwrightRenderer(),
