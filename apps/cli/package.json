@@ -1,8 +1,32 @@
 {
   "name": "gaido",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "A lab notebook for creative-coding agents — a coder agent writes a visual scene, a renderer captures deterministic video, a critic reviews it; every attempt is a forkable node on a graph.",
+  "license": "MIT",
+  "author": "Vadim Lobanov <vadim@lobanov.pw>",
+  "homepage": "https://gaido.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlobanov/gaido.git",
+    "directory": "apps/cli"
+  },
+  "bugs": "https://github.com/vlobanov/gaido/issues",
   "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "keywords": [
+    "creative-coding",
+    "generative-art",
+    "agents",
+    "ai",
+    "claude-code",
+    "codex",
+    "playwright",
+    "pixi",
+    "video",
+    "node-graph"
+  ],
   "main": "./src/index.ts",
   "exports": {
     ".": {
@@ -13,8 +37,14 @@
   "bin": {
     "gaido": "./bin/gaido.mjs"
   },
+  "files": [
+    "bin",
+    "src",
+    "skills"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "node scripts/prepack.mjs"
   },
   "dependencies": {
     "@gaido/core": "workspace:*",

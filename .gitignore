@@ -30,3 +30,11 @@ skills-lock.json
 /*.jpeg
 /*.jpg
 runs
+
+# Prepack-generated publish assets (copied from repo root / built at pack time)
+apps/cli/README.md
+apps/cli/LICENSE
+apps/cli/skills/
+apps/server/web-dist/
+apps/server/LICENSE
+packages/*/LICENSE

@@ -15,7 +15,13 @@ import { appRouter, type AppRouter } from './routers/index.js';
 import type { Context } from './context.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WEB_DIST = resolve(__dirname, '..', '..', 'web', 'dist');
+// Two layouts: published (`web-dist/` vendored into this package at prepack)
+// and monorepo (sibling `apps/web/dist` built by `pnpm --filter @gaido/web build`).
+const WEB_DIST_CANDIDATES = [
+  resolve(__dirname, '..', 'web-dist'),
+  resolve(__dirname, '..', '..', 'web', 'dist'),
+];
+const WEB_DIST = WEB_DIST_CANDIDATES.find((p) => existsSync(p)) ?? WEB_DIST_CANDIDATES[1]!;
 
 interface ServerOptions {
   port: number;
@@ -133,7 +139,8 @@ export async function createServer(opts: ServerOptions) {
     });
   } else {
     fastify.log.warn(
-      `Web UI not found at ${WEB_DIST}. Run \`pnpm --filter @gaido/web build\` to enable the bundled UI, or use \`pnpm --filter @gaido/web dev\` for hot reload.`
+      `Web UI not found (looked in ${WEB_DIST_CANDIDATES.join(', ')}). ` +
+        `In the monorepo, run \`pnpm --filter @gaido/web build\` to enable the bundled UI, or use \`pnpm --filter @gaido/web dev\` for hot reload.`
     );
   }
 

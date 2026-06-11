@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface Paths {
   projectDir: string;
@@ -24,7 +25,7 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
   const projectDir = path.resolve(cwd);
   // The migrations dir lives in this package, not the user project. Resolve
   // it relative to this file so it works regardless of cwd.
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  const here = path.dirname(fileURLToPath(import.meta.url));
   const migrationsDir = path.resolve(here, '..', 'migrations');
   const runsDir = path.join(projectDir, 'runs');
   return {

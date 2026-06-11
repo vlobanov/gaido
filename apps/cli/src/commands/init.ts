@@ -70,10 +70,12 @@ export async function runInit(cwd: string, _options: InitOptions = {}): Promise<
   await maybeSymlinkSkill(cwd);
 
   console.log(`\n${pc.bold('Next:')}\n`);
-  console.log(`  ${pc.cyan('1.')} Add ${pc.bold('gaido')} as a dependency in your project's package.json,`);
-  console.log(`     or run this CLI from a directory inside the gaido monorepo.`);
-  console.log(`  ${pc.cyan('2.')} ${pc.dim('cp .env.example .env')} and fill in OPENROUTER_API_KEY (used by the critic).`);
-  console.log(`  ${pc.cyan('3.')} Run ${pc.bold('gaido')} to start the server and open the UI.\n`);
+  console.log(`  ${pc.cyan('1.')} ${pc.dim('cp .env.example .env')} and fill in OPENROUTER_API_KEY (used by the critic).`);
+  console.log(`  ${pc.cyan('2.')} ${pc.dim('npx playwright install chromium')} — one-time browser download for the renderer.`);
+  console.log(`  ${pc.cyan('3.')} Run ${pc.bold('npx gaido')} to start the server and open the UI.\n`);
+  console.log(
+    `${pc.dim('Optional:')} ${pc.dim('npm i -D gaido')} ${pc.dim('gives gaido.config.ts editor IntelliSense.')}`
+  );
 
   console.log(
     `${pc.dim('Add more presets at')} ${pc.bold('./skeletons/<name>/')} ${pc.dim('(project) or')} ${pc.bold('~/.gaido/skeletons/<name>/')} ${pc.dim('(global, shared across projects).')}\n`

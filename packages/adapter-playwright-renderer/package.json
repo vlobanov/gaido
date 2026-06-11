@@ -1,13 +1,32 @@
 {
   "name": "@gaido/adapter-playwright-renderer",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Deterministic Playwright + ffmpeg video renderer for Gaido.",
+  "license": "MIT",
+  "author": "Vadim Lobanov <vadim@lobanov.pw>",
+  "homepage": "https://gaido.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlobanov/gaido.git",
+    "directory": "packages/adapter-playwright-renderer"
+  },
+  "bugs": "https://github.com/vlobanov/gaido/issues",
   "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../LICENSE ."
   },
   "dependencies": {
     "@gaido/core": "workspace:*",

@@ -31,7 +31,12 @@ const cache = new Map<string, CacheEntry>();
  */
 export async function loadSkeletonConfig(
   skeletonName: string,
-  opts: SkeletonsOpts
+  opts: SkeletonsOpts & {
+    /** Same alias map as `LoadConfigOptions.frameworkAlias` — overlay files
+     * import `defineSkeleton` from 'gaido' and need it resolvable outside
+     * the monorepo. */
+    frameworkAlias?: Record<string, string>;
+  }
 ): Promise<SkeletonConfig | null> {
   const dir = resolveSkeleton(skeletonName, opts);
   if (!dir) return null;
@@ -48,6 +53,7 @@ export async function loadSkeletonConfig(
     interopDefault: true,
     moduleCache: false,
     fsCache: false,
+    ...(opts.frameworkAlias ? { alias: opts.frameworkAlias } : {}),
   });
   const mod = (await jiti.import(file)) as
     | SkeletonConfig

@@ -36,7 +36,23 @@ export interface LoadedConfig {
   raw: GaidoConfig;
 }
 
-export async function loadConfig(configFile: string): Promise<LoadedConfig> {
+export interface LoadConfigOptions {
+  /**
+   * Module aliases applied when transpiling the config file — maps bare
+   * specifiers (`gaido`, `@gaido/*`) to the absolute entry paths of the
+   * framework copy that is actually running. Needed for `npx gaido`: the
+   * project directory has no node_modules, so `import ... from 'gaido'` in
+   * gaido.config.ts can't resolve from the config file's own location. The
+   * CLI builds this map (see `buildFrameworkAlias` in the gaido package);
+   * monorepo dev entrypoints omit it and rely on workspace links.
+   */
+  frameworkAlias?: Record<string, string>;
+}
+
+export async function loadConfig(
+  configFile: string,
+  options: LoadConfigOptions = {}
+): Promise<LoadedConfig> {
   if (!fs.existsSync(configFile)) {
     // eslint-disable-next-line no-console
     console.error(
@@ -45,7 +61,10 @@ export async function loadConfig(configFile: string): Promise<LoadedConfig> {
     );
     process.exit(1);
   }
-  const jiti = createJiti(import.meta.url, { interopDefault: true });
+  const jiti = createJiti(import.meta.url, {
+    interopDefault: true,
+    ...(options.frameworkAlias ? { alias: options.frameworkAlias } : {}),
+  });
   const mod = (await jiti.import(configFile)) as
     | GaidoConfig
     | { default: GaidoConfig };

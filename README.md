@@ -51,6 +51,7 @@ doesn't.
 ```sh
 mkdir drift-studies && cd drift-studies
 npx gaido init
+npx playwright install chromium   # one-time: the renderer's browser
 npx gaido
 ```
 

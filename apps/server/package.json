@@ -1,18 +1,39 @@
 {
   "name": "@gaido/server",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Gaido server — Fastify + tRPC + SQLite orchestrator with the bundled web UI.",
+  "license": "MIT",
+  "author": "Vadim Lobanov <vadim@lobanov.pw>",
+  "homepage": "https://gaido.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlobanov/gaido.git",
+    "directory": "apps/server"
+  },
+  "bugs": "https://github.com/vlobanov/gaido/issues",
   "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./router": "./src/routers/index.ts"
   },
+  "files": [
+    "src",
+    "migrations",
+    "web-dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsx watch src/dev.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "prepack": "node scripts/prepack.mjs"
   },
   "dependencies": {
     "@gaido/core": "workspace:*",

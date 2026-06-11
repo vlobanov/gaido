@@ -19,6 +19,12 @@ export interface StartServerOptions {
   cwd?: string;
   port?: number;
   host?: string;
+  /**
+   * Module aliases for the project-config and skeleton-overlay loaders —
+   * see `LoadConfigOptions.frameworkAlias`. Passed by the gaido CLI so
+   * `import ... from 'gaido'` resolves in projects with no node_modules.
+   */
+  frameworkAlias?: Record<string, string>;
 }
 
 export interface StartServerResult {
@@ -38,7 +44,9 @@ export async function startServer(
       `[gaido] loaded env from ${env.loaded.join(', ')} (${env.applied} var${env.applied === 1 ? '' : 's'})`
     );
   }
-  const { config, raw: rawConfig } = await loadConfig(paths.configFile);
+  const { config, raw: rawConfig } = await loadConfig(paths.configFile, {
+    ...(options.frameworkAlias ? { frameworkAlias: options.frameworkAlias } : {}),
+  });
 
   const { db, sqlite } = openDb(paths.dbFile, paths.migrationsDir);
 
@@ -88,6 +96,7 @@ export async function startServer(
     workspace,
     paths,
     previewServer,
+    ...(options.frameworkAlias ? { frameworkAlias: options.frameworkAlias } : {}),
   });
 
   const context: Context = {

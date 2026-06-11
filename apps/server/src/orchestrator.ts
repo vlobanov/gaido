@@ -48,6 +48,8 @@ interface OrchestratorDeps {
   workspace: WorkspaceManager;
   paths: Paths;
   previewServer: PreviewServerHandle | null;
+  /** Alias map for skeleton-overlay loading — see `LoadConfigOptions.frameworkAlias`. */
+  frameworkAlias?: Record<string, string>;
 }
 
 /**
@@ -65,6 +67,7 @@ export class Orchestrator {
   private readonly workspace: WorkspaceManager;
   private readonly paths: Paths;
   private readonly previewServer: PreviewServerHandle | null;
+  private readonly frameworkAlias: Record<string, string> | undefined;
   private readonly active = new Map<string, AbortController>();
   /**
    * Concurrency throttles (`concurrency` in gaido.config.ts). `agentSlots`
@@ -87,6 +90,7 @@ export class Orchestrator {
     this.workspace = deps.workspace;
     this.paths = deps.paths;
     this.previewServer = deps.previewServer;
+    this.frameworkAlias = deps.frameworkAlias;
     this.agentSlots = new Semaphore(deps.config.concurrency.agents);
     this.renderSlots = new Semaphore(deps.config.concurrency.renderers);
   }
@@ -855,6 +859,7 @@ export class Orchestrator {
     const skeletonName = this.resolveRootSkeletonName(node);
     const overlay = await loadSkeletonConfig(skeletonName, {
       projectDir: this.paths.projectDir,
+      ...(this.frameworkAlias ? { frameworkAlias: this.frameworkAlias } : {}),
     });
     if (!overlay) return this.config;
     return mergeWithDefaults(applySkeletonOverlay(this.rawConfig, overlay));
