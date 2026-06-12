@@ -14,22 +14,22 @@ importers:
 
   apps/cli:
     dependencies:
-      '@gaido/adapter-claude-code':
+      '@vadimlobanov/gaido-adapter-claude-code':
         specifier: workspace:*
         version: link:../../packages/adapter-claude-code
-      '@gaido/adapter-codex':
+      '@vadimlobanov/gaido-adapter-codex':
         specifier: workspace:*
         version: link:../../packages/adapter-codex
-      '@gaido/adapter-openrouter':
+      '@vadimlobanov/gaido-adapter-openrouter':
         specifier: workspace:*
         version: link:../../packages/adapter-openrouter
-      '@gaido/adapter-playwright-renderer':
+      '@vadimlobanov/gaido-adapter-playwright-renderer':
         specifier: workspace:*
         version: link:../../packages/adapter-playwright-renderer
-      '@gaido/core':
+      '@vadimlobanov/gaido-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@gaido/server':
+      '@vadimlobanov/gaido-server':
         specifier: workspace:*
         version: link:../server
       open:
@@ -60,12 +60,12 @@ importers:
       '@fastify/websocket':
         specifier: ^11.0.0
         version: 11.2.0
-      '@gaido/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.17.0(typescript@5.9.3)
+      '@vadimlobanov/gaido-core':
+        specifier: workspace:*
+        version: link:../../packages/core
       better-sqlite3:
         specifier: ^11.5.0
         version: 11.10.0
@@ -100,12 +100,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@gaido/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@gaido/server':
-        specifier: workspace:*
-        version: link:../server
       '@tanstack/react-query':
         specifier: ^5.59.0
         version: 5.100.9(react@18.3.1)
@@ -118,6 +112,12 @@ importers:
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.17.0(typescript@5.9.3)
+      '@vadimlobanov/gaido-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@vadimlobanov/gaido-server':
+        specifier: workspace:*
+        version: link:../server
       '@xyflow/react':
         specifier: ^12.3.5
         version: 12.10.2(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -168,9 +168,25 @@ importers:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@22.19.18)
 
+  demo:
+    dependencies:
+      gaido:
+        specifier: workspace:*
+        version: link:../apps/cli
+      playwright:
+        specifier: ^1.49.0
+        version: 1.59.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.0
+        version: 20.19.43
+
   packages/adapter-claude-code:
     dependencies:
-      '@gaido/core':
+      '@vadimlobanov/gaido-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -183,7 +199,7 @@ importers:
 
   packages/adapter-codex:
     dependencies:
-      '@gaido/core':
+      '@vadimlobanov/gaido-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -196,7 +212,7 @@ importers:
 
   packages/adapter-openrouter:
     dependencies:
-      '@gaido/core':
+      '@vadimlobanov/gaido-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -209,7 +225,7 @@ importers:
 
   packages/adapter-playwright-renderer:
     dependencies:
-      '@gaido/core':
+      '@vadimlobanov/gaido-core':
         specifier: workspace:*
         version: link:../core
       playwright:
@@ -1189,6 +1205,9 @@ packages:
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
+
+  '@types/node@20.19.43':
+    resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
   '@types/node@22.19.18':
     resolution: {integrity: sha512-9v00a+dn2yWVsYDEunWC4g/TcRKVq3r8N5FuZp7u0SGrPvdN9c2yXI9bBuf5Fl0hNCb+QTIePTn5pJs2pwBOQQ==}
@@ -3279,6 +3298,10 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/ms@2.1.0': {}
+
+  '@types/node@20.19.43':
+    dependencies:
+      undici-types: 6.21.0
 
   '@types/node@22.19.18':
     dependencies:

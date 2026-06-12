@@ -3,3 +3,5 @@ packages:
   - 'packages/*'
   # Dev fixture for local testing of the CLI; not part of the framework.
   - 'test-project'
+  # Demo rig: scripted-adapter project + recorder for README/site media.
+  - 'demo'
