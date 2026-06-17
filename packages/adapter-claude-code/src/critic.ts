@@ -27,6 +27,19 @@ export interface ClaudeCodeCriticOpts {
   frameCount?: number;
   /** Extra CLI args appended after the standard flags. */
   extraArgs?: string[];
+  /**
+   * Reviewer framing — the first line of the critic prompt. Override when
+   * the artifact isn't an animation (e.g. a website skeleton sets a web
+   * design reviewer). Default:
+   * 'You are a senior visual artist reviewing a generated animation.'
+   */
+  persona?: string;
+  /**
+   * What to evaluate, inserted into "evaluate the result holistically:
+   * <criteria>". Default: 'composition, motion, color, how well it
+   * satisfies the instruction'.
+   */
+  criteria?: string;
 }
 
 export function claudeCodeCritic(opts: ClaudeCodeCriticOpts = {}): Critic {
@@ -37,6 +50,12 @@ export function claudeCodeCritic(opts: ClaudeCodeCriticOpts = {}): Critic {
     permissionMode: opts.permissionMode ?? 'bypassPermissions',
     frameCount: Math.max(1, Math.min(20, opts.frameCount ?? 6)),
     extraArgs: opts.extraArgs ?? [],
+    persona:
+      opts.persona ??
+      'You are a senior visual artist reviewing a generated animation.',
+    criteria:
+      opts.criteria ??
+      'composition, motion, color, how well it satisfies the instruction',
   };
   return {
     kind: 'claude-code',
@@ -51,6 +70,8 @@ interface ResolvedCfg {
   permissionMode: ClaudeCodePermissionMode;
   frameCount: number;
   extraArgs: string[];
+  persona: string;
+  criteria: string;
 }
 
 async function critiqueWithClaudeCode(
@@ -79,7 +100,7 @@ async function critiqueWithClaudeCode(
       `[claude-critic] extracted ${frames.length} frame(s) → ${stageDir}`
     );
 
-    const prompt = buildPrompt(input.prompt, frames);
+    const prompt = buildPrompt(cfg, input.prompt, frames);
     const text = await runClaude(cfg, prompt, stageDir, ctx);
     if (ctx.abortSignal.aborted) throw makeAbortError();
 
@@ -90,10 +111,14 @@ async function critiqueWithClaudeCode(
   }
 }
 
-function buildPrompt(originalInstruction: string, frames: string[]): string {
+function buildPrompt(
+  cfg: Pick<ResolvedCfg, 'persona' | 'criteria'>,
+  originalInstruction: string,
+  frames: string[]
+): string {
   const list = frames.map((f, i) => `  ${i + 1}. ${path.basename(f)}`).join('\n');
   return [
-    `You are a senior visual artist reviewing a generated animation.`,
+    cfg.persona,
     ``,
     `Original creative instruction:`,
     `"${originalInstruction.trim()}"`,
@@ -101,7 +126,7 @@ function buildPrompt(originalInstruction: string, frames: string[]): string {
     `Use the Read tool to look at each of these keyframes from the rendered video, in order:`,
     list,
     ``,
-    `Then evaluate the result holistically: composition, motion, color, how well it satisfies the instruction.`,
+    `Then evaluate the result holistically: ${cfg.criteria}.`,
     ``,
     `OUTPUT FORMAT — your final assistant message MUST be exactly one JSON object, no prose, no markdown fences. Schema:`,
     `{`,
