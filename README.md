@@ -64,6 +64,7 @@ import {
   defineConfig,
   claudeCodeCoder,
   codexCoder,
+  opencodeCoder,
   geminiCritic,
   playwrightRenderer,
 } from 'gaido';
@@ -73,6 +74,8 @@ export default defineConfig({
     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
     'cc-opus': claudeCodeCoder({ model: 'opus' }),
     codex: codexCoder({ effort: 'medium' }),
+    // OpenCode reaches any provider it's configured for; this hosted one is free, no key.
+    opencode: opencodeCoder({ model: 'opencode/deepseek-v4-flash-free' }),
   },
   critic: geminiCritic(), // or humanCritic() — your eye, no API
   renderer: playwrightRenderer(),
@@ -81,8 +84,8 @@ export default defineConfig({
 ```
 
 Requires Node 20+ and `ffmpeg`. The bundled coder adapters shell out to the
-`claude` / `codex` CLIs — your existing subscriptions and logins, no extra
-keys.
+`claude` / `codex` / `opencode` CLIs — your existing subscriptions and logins,
+no extra keys.
 
 ## How it's built
 

@@ -20,6 +20,9 @@ importers:
       '@vadimlobanov/gaido-adapter-codex':
         specifier: workspace:*
         version: link:../../packages/adapter-codex
+      '@vadimlobanov/gaido-adapter-opencode':
+        specifier: workspace:*
+        version: link:../../packages/adapter-opencode
       '@vadimlobanov/gaido-adapter-openrouter':
         specifier: workspace:*
         version: link:../../packages/adapter-openrouter
@@ -168,22 +171,6 @@ importers:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@22.19.18)
 
-  demo:
-    dependencies:
-      gaido:
-        specifier: workspace:*
-        version: link:../apps/cli
-      playwright:
-        specifier: ^1.49.0
-        version: 1.59.1
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.17.0
-        version: 20.19.43
-
   packages/adapter-claude-code:
     dependencies:
       '@vadimlobanov/gaido-core':
@@ -198,6 +185,19 @@ importers:
         version: 5.9.3
 
   packages/adapter-codex:
+    dependencies:
+      '@vadimlobanov/gaido-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.18
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/adapter-opencode:
     dependencies:
       '@vadimlobanov/gaido-core':
         specifier: workspace:*
@@ -1205,9 +1205,6 @@ packages:
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
-
-  '@types/node@20.19.43':
-    resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
   '@types/node@22.19.18':
     resolution: {integrity: sha512-9v00a+dn2yWVsYDEunWC4g/TcRKVq3r8N5FuZp7u0SGrPvdN9c2yXI9bBuf5Fl0hNCb+QTIePTn5pJs2pwBOQQ==}
@@ -3298,10 +3295,6 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/ms@2.1.0': {}
-
-  '@types/node@20.19.43':
-    dependencies:
-      undici-types: 6.21.0
 
   '@types/node@22.19.18':
     dependencies:

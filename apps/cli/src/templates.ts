@@ -14,6 +14,7 @@ export default defineConfig({
   //     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
   //     'cc-opus': claudeCodeCoder({ model: 'opus', effort: 'high' }),
   //     codex: codexCoder({ effort: 'high' }),  // OpenAI Codex CLI ('codex' on PATH)
+  //     opencode: opencodeCoder({ model: 'anthropic/claude-sonnet-4-5' }),  // OpenCode CLI ('opencode' on PATH) — any provider, incl. local Ollama
   //   },
   renderer: playwrightRenderer(),
   critic: geminiCritic(),

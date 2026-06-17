@@ -2,6 +2,7 @@ import {
   defineConfig,
   claudeCodeCoder,
   codexCoder,
+  opencodeCoder,
   stubCoder,
   playwrightRenderer,
   geminiCritic,
@@ -18,6 +19,10 @@ export default defineConfig({
     'cc-sonnet': claudeCodeCoder({ model: 'sonnet' }),
     'cc-opus': claudeCodeCoder({ model: 'opus' }),
     codex: codexCoder({ effort: 'medium' }),
+    // OpenCode CLI ('opencode' on PATH). 'opencode/*' free hosted models work
+    // with no auth; or point at any provider you've configured (incl. a local
+    // 'ollama/<model>'). Different adapter kind — incompatible session switch.
+    opencode: opencodeCoder({ model: 'opencode/deepseek-v4-flash-free' }),
     stub: stubCoder(),
   },
   renderer: playwrightRenderer(),

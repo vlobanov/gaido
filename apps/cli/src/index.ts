@@ -14,6 +14,8 @@ export type {
 } from '@vadimlobanov/gaido-adapter-claude-code';
 export { codexCoder } from '@vadimlobanov/gaido-adapter-codex';
 export type { CodexCoderOpts, CodexSandboxMode } from '@vadimlobanov/gaido-adapter-codex';
+export { opencodeCoder } from '@vadimlobanov/gaido-adapter-opencode';
+export type { OpencodeCoderOpts } from '@vadimlobanov/gaido-adapter-opencode';
 export {
   playwrightRenderer,
   playwrightRecordRenderer,
