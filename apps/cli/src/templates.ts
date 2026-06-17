@@ -214,6 +214,102 @@ the file self-contained. You may add additional \`.js\`/\`.css\` files in
 this directory if it helps modularity.
 `;
 
+const websiteIndexHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Untitled site</title>
+    <style>
+      /* The coder agent replaces this page entirely. The starter only
+         establishes a scrollable document — no design baked in. */
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #1a1a1a; background: #fff;
+      }
+      main { max-width: 56rem; margin: 0 auto; padding: 6rem 1.5rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Replace me</h1>
+      <p>The coder agent builds the whole site here.</p>
+    </main>
+  </body>
+</html>
+`;
+
+const websiteClaudeMd = `# Project conventions for the coder agent
+
+You are building a complete static website in this directory. \`index.html\`
+is the entry point. The renderer loads it in a headless browser at the
+configured viewport and films a slow scroll from the top of the page to the
+bottom — that scroll-through video is what the artist (and the critic) see.
+
+## Output requirements
+
+- A full page with real scroll height: hero first, then the sections the
+  brief calls for, then a footer. One strong screen is not a website.
+- Static and self-contained: plain HTML/CSS (+ small vanilla JS where it
+  earns its place). No build step, no frameworks, no external JS libraries.
+- You may split into \`styles.css\` / extra pages / inline SVG files in this
+  directory. Keep it tidy.
+- Fonts: system stacks, or Google Fonts via \`<link>\` (add preconnect).
+- Images: draw them — inline SVG, CSS art, data URIs. Do NOT hotlink stock
+  photos or external image URLs; the render machine may not fetch them and
+  every render must be reproducible.
+- Content must be real copy, written for the specific brief: actual names,
+  prices, dates, hours, addresses (invented but plausible). Never lorem
+  ipsum, never "Your Company", never placeholder anything.
+
+## Motion & capture
+
+- CSS animations/transitions are fine and will show in the scroll-through.
+- Content must be visible without JS. If you add entrance animations,
+  default elements to visible and enhance — an IntersectionObserver that
+  leaves sections at opacity 0 reads as a blank page on capture.
+- No scroll-jacking, no JS smooth-scrolling.
+
+## Craft
+
+- Design like a person was paid for it: deliberate type scale, spacing
+  rhythm, a color system, considered hierarchy. Semantic landmarks and alt
+  text throughout.
+- Match the register of the business in the brief — a bakery and a law firm
+  should not share a voice.
+`;
+
+const websiteSkeletonConfig = `import {
+  defineSkeleton,
+  playwrightRenderer,
+  claudeCodeCritic,
+} from 'gaido';
+
+/**
+ * Website preset overlay: the camera scrolls the page instead of holding a
+ * fixed viewport, the critic reviews as a web designer, and the frame is a
+ * desktop viewport. Layers over gaido.config.ts for every node using this
+ * skeleton — see the default skeleton's gaido.skeleton.ts for merge rules.
+ */
+export default defineSkeleton({
+  renderer: playwrightRenderer({ capture: 'scroll' }),
+  critic: claudeCodeCritic({
+    persona:
+      'You are a senior web designer reviewing a generated website. The keyframes are a top-to-bottom scroll through the page.',
+    criteria:
+      'visual hierarchy, typography, spacing and rhythm, color, quality and credibility of the content, how well it satisfies the brief',
+    // Websites are tall and the eased scroll moves fastest mid-page; 16
+    // frames keeps consecutive samples overlapping at an 800px viewport so
+    // no section can slip between keyframes unseen.
+    frameCount: 16,
+  }),
+  extend: {
+    render: { width: 1280, height: 800, duration: 10 },
+  },
+});
+`;
+
 const skeletonConfigExample = `import { defineSkeleton } from 'gaido';
 
 /**
@@ -269,5 +365,14 @@ export const skeletonCatalog: Record<string, SkeletonTemplate> = {
   css: {
     description: 'Pure DOM/CSS/SVG — kinetic typography, layered effects, transforms.',
     files: { 'index.html': cssIndexHtml, 'CLAUDE.md': cssClaudeMd },
+  },
+  website: {
+    description:
+      'Static websites — scroll-through capture, web-designer critic, desktop viewport.',
+    files: {
+      'index.html': websiteIndexHtml,
+      'CLAUDE.md': websiteClaudeMd,
+      'gaido.skeleton.ts': websiteSkeletonConfig,
+    },
   },
 };
