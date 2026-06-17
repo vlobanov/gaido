@@ -28,15 +28,47 @@ export interface PlaywrightRendererOpts {
    * headless.
    */
   launchArgs?: string[];
+  /**
+   * What the camera does across the configured duration.
+   *
+   * - 'viewport' (default): fixed viewport — for animations that move on
+   *   their own under the fake clock.
+   * - 'scroll': the page is taller than the viewport and the camera pans
+   *   down it — for documents/websites. Holds on the top of the page, eases
+   *   down to the bottom, holds there. The fake clock still advances every
+   *   frame, so CSS animations and rAF-driven touches keep moving during
+   *   the pan. Thumbnail becomes the FIRST frame (the hero), not the middle.
+   */
+  capture?: 'viewport' | 'scroll';
+  /**
+   * Scroll-mode pacing. `holdStart`/`holdEnd` are fractions of the total
+   * frame count spent parked on the hero/footer (defaults 0.15 each, 70%
+   * travel between). `maxPxPerSecond` caps the average travel speed: when a
+   * page is tall enough that the configured duration would scroll faster,
+   * the render extends past `render.duration` until the cap holds (up to 4×
+   * duration) — a 9000px page shouldn't blur past in seven seconds.
+   * Default 600. Ignored in 'viewport' mode.
+   */
+  scroll?: {
+    holdStart?: number;
+    holdEnd?: number;
+    maxPxPerSecond?: number;
+  };
 }
 
 export function playwrightRenderer(
   opts: PlaywrightRendererOpts = {}
 ): Renderer {
-  const cfg = {
+  const cfg: ResolvedConfig = {
     ffmpegBin: opts.ffmpegBin ?? 'ffmpeg',
     warmupMs: opts.warmupMs ?? 1000,
     launchArgs: opts.launchArgs ?? [],
+    capture: opts.capture ?? 'viewport',
+    scroll: {
+      holdStart: opts.scroll?.holdStart ?? 0.15,
+      holdEnd: opts.scroll?.holdEnd ?? 0.15,
+      maxPxPerSecond: opts.scroll?.maxPxPerSecond ?? 600,
+    },
   };
   return {
     kind: 'playwright',
@@ -48,6 +80,8 @@ interface ResolvedConfig {
   ffmpegBin: string;
   warmupMs: number;
   launchArgs: string[];
+  capture: 'viewport' | 'scroll';
+  scroll: { holdStart: number; holdEnd: number; maxPxPerSecond: number };
 }
 
 async function doRender(
@@ -60,7 +94,7 @@ async function doRender(
   const framesDir = path.join(ctx.outputDir, 'frames');
   fs.mkdirSync(framesDir, { recursive: true });
 
-  const totalFrames = Math.max(1, Math.round(input.duration * input.fps));
+  let totalFrames = Math.max(1, Math.round(input.duration * input.fps));
   const stepMs = 1000 / input.fps;
   const videoPath = path.join(ctx.outputDir, 'video.mp4');
   const thumbnailPath = path.join(ctx.outputDir, 'thumbnail.png');
@@ -119,6 +153,55 @@ async function doRender(
     await new Promise((r) => setTimeout(r, cfg.warmupMs));
     await page.clock.runFor(cfg.warmupMs);
 
+    let maxScroll = 0;
+    if (cfg.capture === 'scroll') {
+      // Web fonts shift layout and scrollHeight; give them a bounded real-time
+      // grace (document.fonts.ready resolves off network events, not the
+      // fake clock — but a hung font fetch shouldn't stall the render).
+      // `globalThis` casts keep this file compilable in Node-only tsconfigs
+      // (same convention as record.ts).
+      await Promise.race([
+        page.evaluate(() => {
+          const d = (globalThis as unknown as {
+            document: { fonts: { ready: Promise<unknown> } };
+          }).document;
+          return d.fonts.ready.then(() => undefined);
+        }),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+      // Classic (non-overlay) scrollbars would show up in every frame.
+      await page.addStyleTag({
+        content:
+          'html { scrollbar-width: none; } ::-webkit-scrollbar { display: none; }',
+      });
+      maxScroll = await page.evaluate(() => {
+        const g = globalThis as unknown as {
+          document: { documentElement: { scrollHeight: number } };
+          innerHeight: number;
+        };
+        return Math.max(
+          0,
+          g.document.documentElement.scrollHeight - g.innerHeight
+        );
+      });
+      // Tall pages: extend the render rather than blur past the content.
+      // `render.duration` acts as a minimum; the cap bounds travel speed.
+      const travelFrac = Math.max(
+        0.05,
+        1 - cfg.scroll.holdStart - cfg.scroll.holdEnd
+      );
+      const travelSec = (totalFrames / input.fps) * travelFrac;
+      if (maxScroll / travelSec > cfg.scroll.maxPxPerSecond) {
+        const needed = Math.round(
+          (maxScroll / cfg.scroll.maxPxPerSecond / travelFrac) * input.fps
+        );
+        totalFrames = Math.min(needed, totalFrames * 4);
+      }
+      ctx.logger.info(
+        `[playwright] scroll capture: ${maxScroll}px of travel over ${totalFrames} frames`
+      );
+    }
+
     if (ctx.abortSignal.aborted) throw makeAbortError();
 
     // Capture frames. Width of the frame index is enough digits to hold
@@ -126,6 +209,23 @@ async function doRender(
     const padWidth = String(totalFrames).length;
     for (let i = 0; i < totalFrames; i++) {
       if (ctx.abortSignal.aborted) throw makeAbortError();
+      if (cfg.capture === 'scroll' && maxScroll > 0) {
+        const y = Math.round(
+          scrollOffsetAt(i, totalFrames, cfg.scroll) * maxScroll
+        );
+        // behavior:'instant' bypasses any CSS scroll-behavior:smooth the
+        // page sets, keeping frame position exact.
+        await page.evaluate((top) => {
+          const g = globalThis as unknown as {
+            scrollTo: (opts: {
+              top: number;
+              left: number;
+              behavior: string;
+            }) => void;
+          };
+          g.scrollTo({ top, left: 0, behavior: 'instant' });
+        }, y);
+      }
       // Advance time first so frame i is at t = (i+1)*step. Frame 0 at t=step
       // matches the convention "first frame is one tick into the animation".
       await page.clock.fastForward(stepMs);
@@ -141,9 +241,10 @@ async function doRender(
       });
     }
 
-    // Use the middle frame as the thumbnail (visually representative of
-    // the middle of the animation rather than the still pre-roll).
-    const thumbIdx = Math.floor(totalFrames / 2);
+    // Thumbnail: middle frame for animations (representative of motion);
+    // first frame for scroll capture (the page hero beats mid-scroll).
+    const thumbIdx =
+      cfg.capture === 'scroll' ? 0 : Math.floor(totalFrames / 2);
     const thumbSrc = path.join(
       framesDir,
       `frame-${String(thumbIdx).padStart(padWidth, '0')}.png`
@@ -175,6 +276,23 @@ async function doRender(
     thumbnailPath,
     durationMs: Date.now() - startedAt,
   };
+}
+
+/**
+ * Scroll progress (0..1) for frame i of n: hold at the top, ease down,
+ * hold at the bottom. Cubic in-out on the travel segment so the pan
+ * starts and lands softly.
+ */
+function scrollOffsetAt(
+  i: number,
+  n: number,
+  pacing: { holdStart: number; holdEnd: number }
+): number {
+  if (n <= 1) return 0;
+  const t = i / (n - 1);
+  const travel = Math.max(0.05, 1 - pacing.holdStart - pacing.holdEnd);
+  const p = Math.min(1, Math.max(0, (t - pacing.holdStart) / travel));
+  return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 }
 
 interface EncodeOpts {
