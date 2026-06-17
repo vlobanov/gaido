@@ -78,6 +78,13 @@ export interface WorkspaceManager {
    * a node's `references/` folder without ever touching the source worktree.
    */
   archiveCommit(args: ArchiveCommitArgs): Promise<void>;
+  /**
+   * Resolve the current tip commit of `node/<nodeId>`, or null if the branch
+   * doesn't exist (store uninitialized, node never committed, branch pruned).
+   * Used by the static preview server to serve a no-diff run — which carries
+   * no `commitSha` of its own — from the branch tip it actually rendered.
+   */
+  resolveBranchTip(nodeId: string): Promise<string | null>;
   /** Remove worktree + branch. Idempotent. */
   removeNodeWorkspace(args: RemoveNodeArgs): Promise<void>;
 }
@@ -230,6 +237,25 @@ export function createWorkspaceManager(
     fs.rmSync(tarPath, { force: true });
   };
 
+  const resolveBranchTip = async (
+    nodeId: string
+  ): Promise<string | null> => {
+    if (!isInitialized()) return null;
+    try {
+      // --verify --quiet: exits non-zero (→ throws) when the ref is missing.
+      const { stdout } = await git(
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/heads/${branchOf(nodeId)}`
+      );
+      const sha = stdout.trim();
+      return sha.length > 0 ? sha : null;
+    } catch {
+      return null;
+    }
+  };
+
   const removeNodeWorkspace = async (args: RemoveNodeArgs): Promise<void> => {
     if (!isInitialized()) return;
     const wt = path.join(runsDir, args.canvasSlug, args.nodeId);
@@ -255,6 +281,7 @@ export function createWorkspaceManager(
     ensureNodeWorkspace,
     commitRun,
     archiveCommit,
+    resolveBranchTip,
     removeNodeWorkspace,
   };
 }

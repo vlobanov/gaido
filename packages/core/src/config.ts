@@ -36,6 +36,33 @@ export interface PreviewServerConfig {
 }
 
 /**
+ * Built-in per-run static preview server. Enabled by default: gaido serves
+ * each run's committed code over HTTP at
+ * `http://<runId>.<canvasSlug>.localhost:<port>/`, so the artist can open the
+ * live, interactive page for any run straight from the graph — no project dev
+ * server required. The page is served from a `git archive` of the run's commit
+ * (immutable, decoupled from the worktree), materialized lazily on first
+ * request and cached under `runs/.previews/`.
+ *
+ * Each run gets its own subdomain origin so root-absolute asset URLs
+ * (`/assets/app.js`) resolve correctly. `*.localhost` resolves to loopback in
+ * Chrome and Firefox out of the box; Safari / the macOS system resolver may
+ * need an `/etc/hosts` entry.
+ *
+ * Process-global (one server, bound once at startup) like `server` and
+ * `concurrency`: set it in `gaido.config.ts`, never in a skeleton overlay.
+ */
+export interface StaticPreviewConfig {
+  /** Turn the built-in preview server off entirely. Default: enabled. */
+  disabled?: boolean;
+  /**
+   * Port the preview server binds on 127.0.0.1. Default: the main server port
+   * + 1 (4289 alongside the default 4288). Must differ from `server.port`.
+   */
+  port?: number;
+}
+
+/**
  * A shell check run after the coder phase. Failure feeds combined stdout +
  * stderr back to the coder as the next message in the resumed session, up
  * to `checkMaxRetries` attempts.
@@ -89,6 +116,7 @@ export interface GaidoConfig {
     port?: number;
     openBrowser?: boolean;
   };
+  staticPreview?: StaticPreviewConfig;
 }
 
 export function defineConfig(config: GaidoConfig): GaidoConfig {
@@ -143,12 +171,12 @@ export function resolveCoderRegistry(
  * field REPLACES the project value; a field under `extend` MERGES into it —
  * the `postCoderChecks` array appends, `render` shallow-merges key-by-key.
  *
- * `server` and `concurrency` are process-global (bound once at startup), so
- * they cannot be set per-skeleton: they're omitted from the type here and
- * rejected at load time.
+ * `server`, `concurrency`, and `staticPreview` are process-global (bound once
+ * at startup), so they cannot be set per-skeleton: they're omitted from the
+ * type here and rejected at load time.
  */
 export type SkeletonConfigLayer = Partial<
-  Omit<GaidoConfig, 'server' | 'concurrency'>
+  Omit<GaidoConfig, 'server' | 'concurrency' | 'staticPreview'>
 >;
 
 export interface SkeletonConfig extends SkeletonConfigLayer {

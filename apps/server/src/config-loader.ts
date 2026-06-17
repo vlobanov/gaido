@@ -22,6 +22,13 @@ export interface ResolvedConfig {
   concurrency: { agents: number; renderers: number };
   render: { width: number; height: number; fps: number; duration: number };
   server: { port: number; openBrowser: boolean };
+  /**
+   * Built-in per-run static preview server (`staticPreview` in the config).
+   * Enabled by default; `port` defaults to the main server port + 1. The
+   * orchestrator reads this to build each run's `previewUrl`; startup uses it
+   * to bind the server. Process-global — never overridden by skeleton overlays.
+   */
+  staticPreview: { enabled: boolean; port: number };
 }
 
 export interface LoadedConfig {
@@ -101,6 +108,12 @@ export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {
     server: {
       port: cfg.server?.port ?? defaults.server.port,
       openBrowser: cfg.server?.openBrowser ?? defaults.server.openBrowser,
+    },
+    staticPreview: {
+      enabled: !(cfg.staticPreview?.disabled ?? false),
+      port:
+        cfg.staticPreview?.port ??
+        (cfg.server?.port ?? defaults.server.port) + 1,
     },
   };
 }

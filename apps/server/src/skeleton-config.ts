@@ -24,10 +24,11 @@ const cache = new Map<string, CacheEntry>();
  * has no overlay file (or the skeleton name doesn't resolve to a directory) —
  * the common case, where the project config applies unchanged.
  *
- * Throws if the overlay sets `server` or `concurrency` (top-level or under
- * `extend`): those are process-global, bound once at startup, so a per-skeleton
- * value would be a silent no-op. The `SkeletonConfig` type already forbids them
- * in TS authoring; this guards the JS / type-cast escape hatch by failing loud.
+ * Throws if the overlay sets `server`, `concurrency`, or `staticPreview`
+ * (top-level or under `extend`): those are process-global, bound once at
+ * startup, so a per-skeleton value would be a silent no-op. The
+ * `SkeletonConfig` type already forbids them in TS authoring; this guards the
+ * JS / type-cast escape hatch by failing loud.
  */
 export async function loadSkeletonConfig(
   skeletonName: string,
@@ -74,14 +75,15 @@ function assertNoProcessGlobalFields(cfg: SkeletonConfig, file: string): void {
     if (!obj) return;
     if (obj.server !== undefined) forbidden.push(`${prefix}server`);
     if (obj.concurrency !== undefined) forbidden.push(`${prefix}concurrency`);
+    if (obj.staticPreview !== undefined) forbidden.push(`${prefix}staticPreview`);
   };
   scan(cfg as Record<string, unknown>, '');
   scan(cfg.extend as Record<string, unknown> | undefined, 'extend.');
   if (forbidden.length > 0) {
     throw new Error(
       `[gaido] ${file}: ${forbidden.join(', ')} cannot be set in a skeleton ` +
-        `config — server and concurrency are process-global; set them in ` +
-        `gaido.config.ts instead.`
+        `config — server, concurrency, and staticPreview are process-global; ` +
+        `set them in gaido.config.ts instead.`
     );
   }
 }

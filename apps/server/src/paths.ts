@@ -19,6 +19,13 @@ export interface Paths {
    * extracted code + keyframes, materialized into worktrees on demand).
    */
   referencesDir: string;
+  /**
+   * Per-run static-site previews served by the built-in preview server: a
+   * `git archive` of each previewed run's commit, keyed by commit sha (so
+   * runs/retries that share a tip dedupe). Lazily materialized on first
+   * request, gitignored under runs/ like artifacts and references.
+   */
+  previewsDir: string;
 }
 
 export function resolvePaths(cwd: string = process.cwd()): Paths {
@@ -48,5 +55,6 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     lessonsFile: path.join(projectDir, 'LESSONS.md'),
     migrationsDir,
     referencesDir: path.join(runsDir, '.references'),
+    previewsDir: path.join(runsDir, '.previews'),
   };
 }

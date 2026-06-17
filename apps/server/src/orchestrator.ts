@@ -34,6 +34,7 @@ import { runChecks, formatFollowUp } from './checks.js';
 import { Semaphore } from './semaphore.js';
 import { snapshotClaudeSession } from './session-snapshot.js';
 import { materializeReferences } from './references.js';
+import { buildStaticPreviewUrl } from './static-preview-server.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
 
 interface OrchestratorDeps {
@@ -693,10 +694,21 @@ export class Orchestrator {
           mimeFromPath(result.thumbnailPath)
         );
       }
+      // previewUrl precedence: an explicit project mapping
+      // (previewServer.publicUrl) wins, then a renderer-supplied URL (e.g. the
+      // record renderer driving the project's own harness), then the
+      // zero-config fallback — gaido's built-in per-run static preview server.
       const publicUrlFn = cfg.previewServer?.publicUrl;
-      const persistedUrl = publicUrlFn
+      let persistedUrl = publicUrlFn
         ? publicUrlFn({ runId, nodeId })
         : result.previewUrl ?? null;
+      if (!persistedUrl && cfg.staticPreview.enabled) {
+        persistedUrl = buildStaticPreviewUrl(
+          cfg.staticPreview.port,
+          runId,
+          canvasSlug
+        );
+      }
       if (persistedUrl) {
         this.db
           .update(schema.runs)

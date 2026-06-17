@@ -13,6 +13,10 @@ import {
   startPreviewServer,
   type PreviewServerHandle,
 } from './preview-server.js';
+import {
+  startStaticPreviewServer,
+  type StaticPreviewHandle,
+} from './static-preview-server.js';
 import type { Context } from './context.js';
 
 export interface StartServerOptions {
@@ -112,6 +116,36 @@ export async function startServer(
   const port = options.port ?? config.server.port;
   const host = options.host ?? '127.0.0.1';
 
+  // Built-in per-run static preview server (on by default). Serves each run's
+  // committed code at http://<runId>.<canvas>.localhost:<previewPort>/ so the
+  // artist can open the live page for any run with no project dev server.
+  let staticPreview: StaticPreviewHandle | null = null;
+  if (config.staticPreview.enabled) {
+    if (config.staticPreview.port === port) {
+      throw new Error(
+        `[gaido] staticPreview.port (${config.staticPreview.port}) must differ ` +
+          `from server.port (${port}). Change one in gaido.config.ts.`
+      );
+    }
+    staticPreview = await startStaticPreviewServer({
+      db,
+      workspace,
+      paths,
+      port: config.staticPreview.port,
+      onLog: (level, line) => {
+        // eslint-disable-next-line no-console
+        const c = console;
+        if (level === 'error') c.error(`[preview] ${line}`);
+        else c.log(`[preview] ${line}`);
+      },
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      `[gaido] static preview server ready — per-run pages at ` +
+        `http://<runId>.<canvas>.localhost:${config.staticPreview.port}/`
+    );
+  }
+
   const fastify = await createServer({ port, host, context });
 
   await fastify.listen({ port, host });
@@ -122,6 +156,9 @@ export async function startServer(
     await fastify.close();
     if (previewServer) {
       await previewServer.stop();
+    }
+    if (staticPreview) {
+      await staticPreview.stop();
     }
     sqlite.close();
   };
