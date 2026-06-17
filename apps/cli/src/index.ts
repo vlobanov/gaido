@@ -16,6 +16,8 @@ export { codexCoder } from '@vadimlobanov/gaido-adapter-codex';
 export type { CodexCoderOpts, CodexSandboxMode } from '@vadimlobanov/gaido-adapter-codex';
 export { opencodeCoder } from '@vadimlobanov/gaido-adapter-opencode';
 export type { OpencodeCoderOpts } from '@vadimlobanov/gaido-adapter-opencode';
+export { cursorCoder } from '@vadimlobanov/gaido-adapter-cursor';
+export type { CursorCoderOpts } from '@vadimlobanov/gaido-adapter-cursor';
 export {
   playwrightRenderer,
   playwrightRecordRenderer,

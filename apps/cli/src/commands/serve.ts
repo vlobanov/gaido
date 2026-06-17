@@ -25,6 +25,8 @@ function buildFrameworkAlias(): Record<string, string> {
     '@vadimlobanov/gaido-core',
     '@vadimlobanov/gaido-adapter-claude-code',
     '@vadimlobanov/gaido-adapter-codex',
+    '@vadimlobanov/gaido-adapter-opencode',
+    '@vadimlobanov/gaido-adapter-cursor',
     '@vadimlobanov/gaido-adapter-openrouter',
     '@vadimlobanov/gaido-adapter-playwright-renderer',
   ]) {

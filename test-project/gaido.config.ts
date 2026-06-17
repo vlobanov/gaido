@@ -3,6 +3,7 @@ import {
   claudeCodeCoder,
   codexCoder,
   opencodeCoder,
+  cursorCoder,
   stubCoder,
   playwrightRenderer,
   geminiCritic,
@@ -23,6 +24,10 @@ export default defineConfig({
     // with no auth; or point at any provider you've configured (incl. a local
     // 'ollama/<model>'). Different adapter kind — incompatible session switch.
     opencode: opencodeCoder({ model: 'opencode/deepseek-v4-flash-free' }),
+    // Cursor CLI ('cursor-agent' on PATH, `cursor-agent login` once). Effort is
+    // encoded in the model id (`cursor-agent models` lists them); no effort opt.
+    // Different adapter kind — incompatible session switch.
+    cursor: cursorCoder({ model: 'auto' }),
     stub: stubCoder(),
   },
   renderer: playwrightRenderer(),

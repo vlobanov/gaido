@@ -15,6 +15,7 @@ export default defineConfig({
   //     'cc-opus': claudeCodeCoder({ model: 'opus', effort: 'high' }),
   //     codex: codexCoder({ effort: 'high' }),  // OpenAI Codex CLI ('codex' on PATH)
   //     opencode: opencodeCoder({ model: 'anthropic/claude-sonnet-4-5' }),  // OpenCode CLI ('opencode' on PATH) — any provider, incl. local Ollama
+  //     cursor: cursorCoder({ model: 'auto' }),  // Cursor CLI ('cursor-agent' on PATH; effort is part of the model id, see 'cursor-agent models')
   //   },
   renderer: playwrightRenderer(),
   critic: geminiCritic(),
