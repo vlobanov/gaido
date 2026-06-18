@@ -212,6 +212,8 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
           </Section>
         )}
 
+        <RunHistory nodeId={nodeId} />
+
         <BoundReferences nodeId={nodeId} />
 
         <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
@@ -968,6 +970,65 @@ function OutputPanel({
         </a>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Every attempt on this coder node, newest first, each with a "Reveal code"
+ * action that opens that iteration's committed code in the OS file manager.
+ * Runs that produced no diff have no distinct snapshot, so their action is
+ * disabled. Reuses CoderSidebar's `runs.listByNode` query (same key → React
+ * Query dedupes, no extra fetch).
+ */
+function RunHistory({ nodeId }: { nodeId: string }) {
+  const runsList = trpc.runs.listByNode.useQuery({ nodeId });
+  const reveal = trpc.runs.revealCode.useMutation();
+  const runs = runsList.data ?? [];
+  if (runs.length === 0) return null;
+  // listByNode is newest-first; number the oldest #1 so labels stay stable as
+  // new runs land on top.
+  const total = runs.length;
+  return (
+    <Section label="Iterations">
+      <ul data-testid="iterations" className="flex flex-col">
+        {runs.map((run, i) => {
+          const hasCode = run.commitSha != null;
+          return (
+            <li
+              key={run.id}
+              className="flex items-center justify-between gap-3 border-b border-hairline py-2 last:border-b-0"
+            >
+              <span className="font-mono text-xs uppercase tracking-caps text-ink-soft">
+                #{total - i}
+                <span className="ml-2 text-ink-faint">{run.status}</span>
+              </span>
+              <button
+                type="button"
+                disabled={!hasCode || reveal.isPending}
+                onClick={() => reveal.mutate({ runId: run.id })}
+                data-testid={`reveal-code-${run.id}`}
+                title={
+                  hasCode
+                    ? 'Open this iteration’s code folder'
+                    : 'This iteration produced no code changes'
+                }
+                className="font-mono text-xs uppercase tracking-caps text-ink-soft underline decoration-hairline-deep underline-offset-4 transition-colors hover:text-ink disabled:no-underline disabled:opacity-40 disabled:hover:text-ink-soft"
+              >
+                Reveal code →
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {reveal.error ? (
+        <p
+          data-testid="reveal-code-error"
+          className="font-mono text-xs uppercase tracking-caps text-sanguine"
+        >
+          {reveal.error.message}
+        </p>
+      ) : null}
+    </Section>
   );
 }
 

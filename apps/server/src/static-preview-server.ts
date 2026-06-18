@@ -4,8 +4,8 @@ import path from 'node:path';
 import { schema } from '@vadimlobanov/gaido-core';
 import { eq } from 'drizzle-orm';
 import type { Db } from './db.js';
-import type { Paths } from './paths.js';
 import type { WorkspaceManager } from './workspace.js';
+import type { PreviewArchiver } from './previews.js';
 
 /**
  * Built-in per-run static preview server. Long-lived, bound once at startup on
@@ -35,7 +35,7 @@ export interface StaticPreviewHandle {
 interface StartOpts {
   db: Db;
   workspace: WorkspaceManager;
-  paths: Paths;
+  archiver: PreviewArchiver;
   port: number;
   onLog?: (level: 'info' | 'error', line: string) => void;
 }
@@ -70,30 +70,7 @@ function runLabelFromHost(host: string | undefined): string | null {
 export async function startStaticPreviewServer(
   opts: StartOpts
 ): Promise<StaticPreviewHandle> {
-  const { db, workspace, paths, port, onLog } = opts;
-
-  // In-flight archive promises, keyed by commit sha, so concurrent requests
-  // for the same not-yet-cached commit await one `git archive`, not N.
-  const archiving = new Map<string, Promise<string>>();
-
-  const ensureArchive = (commit: string): Promise<string> => {
-    const destDir = path.join(paths.previewsDir, commit);
-    // Sibling marker (outside destDir, so it's never itself servable) written
-    // only after archive completes — distinguishes "done" from the partial
-    // dir `archiveCommit` mkdirs up front.
-    const readyMarker = path.join(paths.previewsDir, `.ready-${commit}`);
-    if (fs.existsSync(readyMarker)) return Promise.resolve(destDir);
-    let inflight = archiving.get(commit);
-    if (!inflight) {
-      inflight = (async () => {
-        await workspace.archiveCommit({ commitSha: commit, destDir });
-        fs.writeFileSync(readyMarker, '');
-        return destDir;
-      })().finally(() => archiving.delete(commit));
-      archiving.set(commit, inflight);
-    }
-    return inflight;
-  };
+  const { db, workspace, archiver, port, onLog } = opts;
 
   const handle = async (
     req: http.IncomingMessage,
@@ -133,7 +110,7 @@ export async function startStaticPreviewServer(
       res.end('gaido preview: this run has no committed code to serve yet');
       return;
     }
-    const root = await ensureArchive(commit);
+    const root = await archiver.ensureArchive(commit);
     serveStatic(root, req, res);
   };
 

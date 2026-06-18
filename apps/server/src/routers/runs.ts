@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { schema } from '@vadimlobanov/gaido-core';
 import { desc, eq } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
+import { openInFileManager } from '../previews.js';
 
 export const runsRouter = router({
   get: publicProcedure
@@ -42,5 +43,40 @@ export const runsRouter = router({
     .input(z.object({ nodeId: z.string(), notes: z.string() }))
     .mutation(({ ctx, input }) => {
       return ctx.orchestrator.saveHumanCritique(input.nodeId, input.notes);
+    }),
+
+  /**
+   * Extract this run's committed code into `runs/.previews/<commit>/` and open
+   * that folder in the OS file manager. Local-first single-user: the server
+   * runs on the artist's machine, so the folder opens on their desktop.
+   *
+   * Only runs that produced their own commit have a distinct snapshot — a
+   * no-diff run changed nothing versus its parent, so there is nothing of its
+   * own to reveal (the UI disables the action for those). Returns the path so
+   * the client can show it if a desktop session can't pop a window.
+   */
+  revealCode: publicProcedure
+    .input(z.object({ runId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = ctx.db
+        .select({ commitSha: schema.runs.commitSha })
+        .from(schema.runs)
+        .where(eq(schema.runs.id, input.runId))
+        .get();
+      if (!run) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `run ${input.runId}`,
+        });
+      }
+      if (!run.commitSha) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'this iteration produced no code changes',
+        });
+      }
+      const dir = await ctx.previewArchiver.ensureArchive(run.commitSha);
+      await openInFileManager(dir);
+      return { path: dir };
     }),
 });

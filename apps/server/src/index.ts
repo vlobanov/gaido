@@ -8,6 +8,7 @@ import { Orchestrator } from './orchestrator.js';
 import { recoverInterrupted } from './recovery.js';
 import { createServer } from './server.js';
 import { createWorkspaceManager } from './workspace.js';
+import { createPreviewArchiver } from './previews.js';
 import { resolveSkeleton } from './skeletons.js';
 import {
   startPreviewServer,
@@ -69,6 +70,7 @@ export async function startServer(
     runsDir: paths.runsDir,
     resolveSkeleton: (name) => resolveSkeleton(name, { projectDir: paths.projectDir }),
   });
+  const previewArchiver = createPreviewArchiver({ workspace, paths });
 
   let previewServer: PreviewServerHandle | null = null;
   if (config.previewServer) {
@@ -110,6 +112,7 @@ export async function startServer(
     paths,
     config,
     workspace,
+    previewArchiver,
     previewServer,
   };
 
@@ -130,7 +133,7 @@ export async function startServer(
     staticPreview = await startStaticPreviewServer({
       db,
       workspace,
-      paths,
+      archiver: previewArchiver,
       port: config.staticPreview.port,
       onLog: (level, line) => {
         // eslint-disable-next-line no-console
