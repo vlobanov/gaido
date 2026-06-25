@@ -287,9 +287,13 @@ function handleCritEvent(evt: unknown, ctx: RunContext): HandleCritResult {
   const obj = evt as Record<string, unknown>;
   const out: HandleCritResult = {};
 
-  // The terminal `result` event carries the final assistant text.
-  if (obj.type === 'result' && typeof obj.result === 'string') {
-    out.finalText = obj.result;
+  // The terminal `result` event carries the final assistant text plus the
+  // authoritative billed usage/cost for the critique turn. Emit a
+  // `token_usage` so the orchestrator's rollup persists critic cost/tokens on
+  // the critique run row — same path the coder takes.
+  if (obj.type === 'result') {
+    if (typeof obj.result === 'string') out.finalText = obj.result;
+    emitCriticUsage(obj, ctx);
   }
 
   if (
@@ -323,6 +327,41 @@ function handleCritEvent(evt: unknown, ctx: RunContext): HandleCritResult {
   }
 
   return out;
+}
+
+/**
+ * Parse the `result` event's `usage` block and emit a `token_usage` event for
+ * the critiquing phase. `input_tokens` is the uncached input only; the cache
+ * fields carry the bulk, so they're forwarded separately (the UI sums them).
+ */
+function emitCriticUsage(obj: Record<string, unknown>, ctx: RunContext): void {
+  const raw = obj.usage;
+  if (!raw || typeof raw !== 'object') return;
+  const u = raw as Record<string, unknown>;
+  const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
+  const output = typeof u.output_tokens === 'number' ? u.output_tokens : 0;
+  const cacheCreation =
+    typeof u.cache_creation_input_tokens === 'number'
+      ? u.cache_creation_input_tokens
+      : 0;
+  const cacheRead =
+    typeof u.cache_read_input_tokens === 'number'
+      ? u.cache_read_input_tokens
+      : 0;
+  if (input === 0 && output === 0 && cacheCreation === 0 && cacheRead === 0) {
+    return;
+  }
+  ctx.emit({
+    kind: 'token_usage',
+    phase: 'critiquing',
+    inputTokens: input,
+    outputTokens: output,
+    ...(cacheCreation > 0 ? { cacheCreationTokens: cacheCreation } : {}),
+    ...(cacheRead > 0 ? { cacheReadTokens: cacheRead } : {}),
+    ...(typeof obj.total_cost_usd === 'number'
+      ? { costUsd: obj.total_cost_usd }
+      : {}),
+  });
 }
 
 interface ExtractOpts {

@@ -297,6 +297,13 @@ function enrichFromExport(
 
 interface ExportShape {
   info?: {
+    /**
+     * Billed cost in USD for the session, when opencode has visibility into
+     * it (a paid provider configured with the user's own key). Free hosted
+     * `opencode/*` models and local `ollama/*` report 0 — omitted from the
+     * emit so those runs show "tokens only" rather than a noisy $0.00.
+     */
+    cost?: number;
     tokens?: {
       input?: number;
       output?: number;
@@ -323,10 +330,12 @@ function emitExportEvents(data: ExportShape, ctx: RunContext): void {
     }
   }
 
-  // Closing token usage from the session totals. No cost: opencode doesn't
-  // report billed dollars (local/subscription/free-tier auth), same as codex.
+  // Closing token usage from the session totals. opencode reports billed
+  // `cost` on the session info for paid providers (own key); free hosted /
+  // local auth reports 0, which we drop so the run shows tokens-only.
   const t = parseTokens(data.info?.tokens);
   if (t) {
+    const cost = data.info?.cost;
     ctx.emit({
       kind: 'token_usage',
       phase: 'coding',
@@ -334,6 +343,7 @@ function emitExportEvents(data: ExportShape, ctx: RunContext): void {
       outputTokens: t.output,
       ...(t.cacheWrite > 0 ? { cacheCreationTokens: t.cacheWrite } : {}),
       ...(t.cacheRead > 0 ? { cacheReadTokens: t.cacheRead } : {}),
+      ...(typeof cost === 'number' && cost > 0 ? { costUsd: cost } : {}),
     });
   }
 }

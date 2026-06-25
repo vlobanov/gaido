@@ -117,6 +117,15 @@ export const runs = sqliteTable(
     costUsd: real('cost_usd'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out'),
+    /**
+     * Cache-token breakdown rolled up alongside tokensIn/tokensOut. Kept
+     * separate because `tokensIn` is the *uncached* prompt input only — with
+     * prompt caching most of the real context lands here, so display must add
+     * these back to show a meaningful "input" figure. Null when the adapter
+     * has no cache visibility.
+     */
+    cacheReadTokens: integer('cache_read_tokens'),
+    cacheCreationTokens: integer('cache_creation_tokens'),
     error: text('error', { mode: 'json' }).$type<RunError>(),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),

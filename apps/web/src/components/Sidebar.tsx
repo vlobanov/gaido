@@ -650,25 +650,72 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
 }
 
 function TokenCounter({ tokens }: { tokens: TokenUsage }) {
+  const totalIn = totalInputTokens(tokens);
+  const cached =
+    (tokens.cacheReadTokens ?? 0) + (tokens.cacheCreationTokens ?? 0);
+  const hasCost = typeof tokens.costUsd === 'number';
+  const title =
+    `${totalIn.toLocaleString()} input` +
+    (cached > 0 ? ` (${cached.toLocaleString()} cached)` : '') +
+    ` / ${tokens.outputTokens.toLocaleString()} output tokens` +
+    (hasCost ? ` · ${formatCost(tokens.costUsd as number)}` : '');
   return (
     <span
       data-testid="token-counter"
       className="inline-flex items-center font-mono text-xs uppercase tracking-caps text-ink-muted"
-      title={`${tokens.inputTokens.toLocaleString()} input / ${tokens.outputTokens.toLocaleString()} output tokens`}
+      title={title}
     >
       <span className="text-ink-faint">·</span>
-      <span className="ml-2 text-ink-soft">{formatTokens(tokens.inputTokens)}</span>
+      <span className="ml-2 text-ink-soft">{formatTokens(totalIn)}</span>
       <span className="ml-1 text-ink-faint">in</span>
       <span className="ml-2 text-ink-soft">{formatTokens(tokens.outputTokens)}</span>
       <span className="ml-1 text-ink-faint">out</span>
+      {hasCost ? (
+        <>
+          <span className="ml-2 text-ink-faint">·</span>
+          <span className="ml-2 text-ink-soft">
+            {formatCost(tokens.costUsd as number)}
+          </span>
+        </>
+      ) : null}
     </span>
   );
+}
+
+/**
+ * Total prompt input. `inputTokens` is the *uncached* portion only — with
+ * prompt caching the bulk lands in the cache fields, so a bare `inputTokens`
+ * reads as misleadingly tiny. Add them back for a meaningful "in" figure.
+ */
+function totalInputTokens(t: {
+  inputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}): number {
+  return t.inputTokens + (t.cacheReadTokens ?? 0) + (t.cacheCreationTokens ?? 0);
 }
 
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
   return `${Math.round(n / 1000)}k`;
+}
+
+function formatCost(usd: number): string {
+  if (usd <= 0) return '$0';
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 0) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s < 10 ? s.toFixed(1) : Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return `${m}m${String(rem).padStart(2, '0')}s`;
 }
 
 function HumanCritiqueEditor({
@@ -1075,6 +1122,7 @@ function RunDetails({
         ) : (
           <Timestamp label="Critiquing" started={run.critiquingStartedAt} finished={run.critiquingFinishedAt} />
         )}
+        <RunUsage run={run} />
         <CopyableRunId runId={runId} />
       </div>
 
@@ -1139,14 +1187,76 @@ function Timestamp({
   finished: number | null | undefined;
 }) {
   if (!started) return null;
+  const duration = finished ? finished - started : null;
   return (
     <div className="flex items-baseline gap-3">
       <span className="w-20 text-ink-muted">{label.toLowerCase()}</span>
       <span className="text-ink">
         {fmt(started)}
         {finished ? <span className="text-ink-faint"> · {fmt(finished)}</span> : null}
+        {duration != null ? (
+          <span className="ml-2 text-ink-muted">({formatDuration(duration)})</span>
+        ) : null}
       </span>
     </div>
+  );
+}
+
+/**
+ * Persisted token + cost totals for a finished run. Tokens "in" sums the
+ * uncached input and the cache fields so it reflects the real prompt size;
+ * cost shows only when the adapter reported billed dollars (claude-code
+ * always; opencode for paid providers; codex/cursor never under subscription
+ * auth). Renders nothing until the run has recorded values.
+ */
+function RunUsage({
+  run,
+}: {
+  run: {
+    tokensIn: number | null;
+    tokensOut: number | null;
+    cacheReadTokens: number | null;
+    cacheCreationTokens: number | null;
+    costUsd: number | null;
+  };
+}) {
+  const cached = (run.cacheReadTokens ?? 0) + (run.cacheCreationTokens ?? 0);
+  const totalIn = (run.tokensIn ?? 0) + cached;
+  const out = run.tokensOut ?? 0;
+  const hasTokens = run.tokensIn != null || run.tokensOut != null;
+  const hasCost = typeof run.costUsd === 'number';
+  if (!hasTokens && !hasCost) return null;
+  return (
+    <>
+      {hasTokens ? (
+        <div className="flex items-baseline gap-3">
+          <span className="w-20 text-ink-muted">tokens</span>
+          <span
+            className="text-ink"
+            title={`${totalIn.toLocaleString()} input${
+              cached > 0 ? ` (${cached.toLocaleString()} cached)` : ''
+            } / ${out.toLocaleString()} output`}
+          >
+            {formatTokens(totalIn)}
+            <span className="ml-1 text-ink-faint">in</span>
+            <span className="text-ink-faint"> · </span>
+            {formatTokens(out)}
+            <span className="ml-1 text-ink-faint">out</span>
+            {cached > 0 ? (
+              <span className="ml-2 text-ink-muted">
+                ({formatTokens(cached)} cached)
+              </span>
+            ) : null}
+          </span>
+        </div>
+      ) : null}
+      {hasCost ? (
+        <div className="flex items-baseline gap-3">
+          <span className="w-20 text-ink-muted">cost</span>
+          <span className="text-ink">{formatCost(run.costUsd as number)}</span>
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -1123,6 +1123,10 @@ export class Orchestrator {
     if (totals) {
       update.tokensIn = totals.inputTokens;
       update.tokensOut = totals.outputTokens;
+      if (typeof totals.cacheReadTokens === 'number')
+        update.cacheReadTokens = totals.cacheReadTokens;
+      if (typeof totals.cacheCreationTokens === 'number')
+        update.cacheCreationTokens = totals.cacheCreationTokens;
       if (typeof totals.costUsd === 'number') update.costUsd = totals.costUsd;
     }
 
@@ -1184,6 +1188,8 @@ export class Orchestrator {
   private latestTokenTotals(runId: string): {
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     costUsd?: number;
   } | null {
     const rows = this.db
@@ -1198,6 +1204,12 @@ export class Orchestrator {
         return {
           inputTokens: p.inputTokens,
           outputTokens: p.outputTokens,
+          ...(typeof p.cacheReadTokens === 'number'
+            ? { cacheReadTokens: p.cacheReadTokens }
+            : {}),
+          ...(typeof p.cacheCreationTokens === 'number'
+            ? { cacheCreationTokens: p.cacheCreationTokens }
+            : {}),
           ...(typeof p.costUsd === 'number' ? { costUsd: p.costUsd } : {}),
         };
       }
