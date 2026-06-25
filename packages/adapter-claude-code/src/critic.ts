@@ -59,6 +59,7 @@ export function claudeCodeCritic(opts: ClaudeCodeCriticOpts = {}): Critic {
   };
   return {
     kind: 'claude-code',
+    model: cfg.model,
     critique: (input, ctx) => critiqueWithClaudeCode(cfg, input, ctx),
   };
 }

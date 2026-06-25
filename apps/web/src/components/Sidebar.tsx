@@ -19,6 +19,7 @@ import {
   toReferenceInput,
   type DraftReference,
 } from './ReferenceAttacher';
+import { ManualCritiqueModal, critiqueAuthorLabel } from './ManualCritiqueModal';
 
 interface SidebarProps {
   nodeId: string;
@@ -452,6 +453,7 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
   const [forkOpen, setForkOpen] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
@@ -532,9 +534,17 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
               data-testid="critique-panel"
               className="border border-hairline bg-paper-deep p-3 text-sm leading-relaxed text-ink"
             >
-              <div className="mb-2 flex items-baseline justify-between">
+              <div className="mb-2 flex items-baseline justify-between gap-2">
                 <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
                   Overall
+                  {critiqueAuthorLabel(currentRun.critique.author) ? (
+                    <span
+                      data-testid="critique-author"
+                      className="ml-2 font-mono text-xs normal-case tracking-normal text-ink-faint"
+                    >
+                      {critiqueAuthorLabel(currentRun.critique.author)}
+                    </span>
+                  ) : null}
                 </span>
                 {typeof currentRun.critique.rating === 'number' ? (
                   <span className="font-mono text-xs uppercase tracking-caps text-ink-soft">
@@ -612,15 +622,27 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
             Switch coder
           </button>
           {isHumanCritic ? null : (
-            <button
-              type="button"
-              disabled={!canTrigger || retryNode.isPending}
-              onClick={() => retryNode.mutate({ nodeId })}
-              data-testid="sidebar-retry"
-              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
-            >
-              {retryNode.isPending ? 'Starting...' : runLabel}
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={!canTrigger || retryNode.isPending}
+                onClick={() => retryNode.mutate({ nodeId })}
+                data-testid="sidebar-retry"
+                className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+              >
+                {retryNode.isPending ? 'Starting...' : runLabel}
+              </button>
+              <button
+                type="button"
+                disabled={!canTrigger}
+                onClick={() => setManualOpen(true)}
+                data-testid="sidebar-critique-manually"
+                title="Write the critique yourself instead of running the critic"
+                className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+              >
+                Critique manually
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -658,6 +680,16 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
             utils.nodes.list.invalidate();
             setSelectedNodeId(newId);
           }}
+        />
+      ) : null}
+
+      {manualOpen ? (
+        <ManualCritiqueModal
+          nodeId={nodeId}
+          initialOverall={currentRun?.critique?.overall ?? ''}
+          initialRating={currentRun?.critique?.rating ?? null}
+          onClose={() => setManualOpen(false)}
+          onSaved={() => setManualOpen(false)}
         />
       ) : null}
 

@@ -40,9 +40,19 @@ export const runsRouter = router({
     }),
 
   setHumanCritique: publicProcedure
-    .input(z.object({ nodeId: z.string(), notes: z.string() }))
+    .input(
+      z.object({
+        nodeId: z.string(),
+        notes: z.string(),
+        rating: z.number().int().min(1).max(5).optional(),
+      })
+    )
     .mutation(({ ctx, input }) => {
-      return ctx.orchestrator.saveHumanCritique(input.nodeId, input.notes);
+      return ctx.orchestrator.saveHumanCritique(
+        input.nodeId,
+        input.notes,
+        input.rating
+      );
     }),
 
   /**

@@ -221,7 +221,7 @@ export class Orchestrator {
    * the stored critique back to null and leave the node `idle` so the
    * panel goes back to its empty state.
    */
-  saveHumanCritique(nodeId: string, notes: string): Run {
+  saveHumanCritique(nodeId: string, notes: string, rating?: number): Run {
     const node = this.db
       .select()
       .from(schema.nodes)
@@ -232,12 +232,18 @@ export class Orchestrator {
       throw new Error('human critique can only be saved on critique nodes');
     }
     const trimmed = notes.trim();
+    // Author is always the artist here — this path is the human-critic editor
+    // and the "Critique manually" override on a model-critic node alike.
     const critique: Critique | null = trimmed
       ? {
           overall: trimmed,
           strengths: [],
           weaknesses: [],
           suggestions: [],
+          author: { kind: 'human' },
+          ...(typeof rating === 'number'
+            ? { rating: Math.max(1, Math.min(5, Math.round(rating))) }
+            : {}),
         }
       : null;
     const now = Date.now();
@@ -870,7 +876,19 @@ export class Orchestrator {
           emit: (event) => this.eventBus.publish(runId, node.canvasId, event),
         }
       );
-      critique = result.critique ?? null;
+      // Tag the stored critique with its author so the UI can tell a model's
+      // assessment from a human one. The adapter may set its own author; else
+      // stamp the configured critic's kind + model.
+      critique = result.critique
+        ? {
+            ...result.critique,
+            author: result.critique.author ?? {
+              kind: 'model',
+              critic: cfg.critic.kind,
+              ...(cfg.critic.model ? { model: cfg.critic.model } : {}),
+            },
+          }
+        : null;
     });
 
     this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
@@ -972,7 +990,10 @@ export class Orchestrator {
     const { coder, name } = this.resolveCoder(cfg, node);
     return {
       coder: { kind: coder.kind, args: { name } },
-      critic: { kind: cfg.critic.kind },
+      critic: {
+        kind: cfg.critic.kind,
+        ...(cfg.critic.model ? { model: cfg.critic.model } : {}),
+      },
       renderer: { kind: cfg.renderer.kind },
     };
   }

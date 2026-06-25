@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NodeStatus } from '@vadimlobanov/gaido-core';
 import { StatusBadge, isActiveStatus, type PhaseTiming } from './StatusBadge';
 import { trpc } from '../lib/trpc';
+import { ManualCritiqueModal, critiqueAuthorLabel } from './ManualCritiqueModal';
 
 export interface CritiqueCardData extends PhaseTiming {
   id: string;
@@ -23,6 +24,7 @@ const FAILED_LIKE: ReadonlySet<NodeStatus> = new Set([
 function CritiqueCardComponent({ data, selected }: NodeProps) {
   const d = data as unknown as CritiqueCardData;
   const utils = trpc.useUtils();
+  const [manualOpen, setManualOpen] = useState(false);
   const retryNode = trpc.nodes.retry.useMutation({
     onSuccess: () => utils.nodes.list.invalidate(),
   });
@@ -49,6 +51,11 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
   const onRun = (e: React.MouseEvent) => {
     e.stopPropagation();
     retryNode.mutate({ nodeId: d.id });
+  };
+
+  const onManual = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setManualOpen(true);
   };
 
   return (
@@ -79,15 +86,25 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
               Click to add notes
             </p>
           ) : (
-            <button
-              type="button"
-              onClick={onRun}
-              disabled={retryNode.isPending}
-              data-testid="critique-run"
-              className="w-full border border-dashed border-hairline-deep bg-paper-deep px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper disabled:opacity-40"
-            >
-              {retryNode.isPending ? 'Starting...' : 'Run critic'}
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={onRun}
+                disabled={retryNode.isPending}
+                data-testid="critique-run"
+                className="w-full border border-dashed border-hairline-deep bg-paper-deep px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper disabled:opacity-40"
+              >
+                {retryNode.isPending ? 'Starting...' : 'Run critic'}
+              </button>
+              <button
+                type="button"
+                onClick={onManual}
+                data-testid="critique-manually"
+                className="w-full px-3 py-1 font-mono text-[10px] uppercase tracking-caps text-ink-faint transition-colors hover:text-ink-soft"
+              >
+                or critique manually
+              </button>
+            </div>
           )
         ) : active ? (
           <p className="font-serif text-sm italic text-ink-soft">
@@ -112,6 +129,14 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
                 {critique.rating} of 5
               </p>
             ) : null}
+            {critiqueAuthorLabel(critique.author) ? (
+              <p
+                data-testid="critique-author"
+                className="mt-1 font-mono text-[10px] text-ink-faint"
+              >
+                {critiqueAuthorLabel(critique.author)}
+              </p>
+            ) : null}
           </>
         ) : failed ? (
           <p className="font-mono text-xs uppercase tracking-caps text-sanguine">
@@ -125,6 +150,19 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
       </div>
 
       <Handle type="source" position={Position.Bottom} />
+
+      {manualOpen ? (
+        <ManualCritiqueModal
+          nodeId={d.id}
+          initialOverall={critique?.overall ?? ''}
+          initialRating={critique?.rating ?? null}
+          onClose={() => setManualOpen(false)}
+          onSaved={() => {
+            setManualOpen(false);
+            utils.nodes.list.invalidate();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

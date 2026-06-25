@@ -121,5 +121,11 @@ export interface CriticResult {
 
 export interface Critic {
   readonly kind: string;
+  /**
+   * Model id this critic runs under, when it has a fixed one (e.g.
+   * 'claude-sonnet-4-6'). Recorded as critique authorship and in the run's
+   * config snapshot. Omit for critics with no model concept (e.g. humanCritic).
+   */
+  readonly model?: string;
   critique(input: CriticInput, ctx: RunContext): Promise<CriticResult>;
 }

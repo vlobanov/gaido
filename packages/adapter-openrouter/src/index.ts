@@ -49,6 +49,7 @@ export function geminiCritic(opts: GeminiCriticOpts = {}): Critic {
   };
   return {
     kind: 'gemini-openrouter',
+    model: cfg.model,
     critique: (input, ctx) => critiqueWithGemini(cfg, input, ctx),
   };
 }
