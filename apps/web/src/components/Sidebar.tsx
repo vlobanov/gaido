@@ -6,6 +6,7 @@ import type {
   NodeKind,
   NodeStatus,
 } from '@vadimlobanov/gaido-core';
+import { critiqueFeedback } from '@vadimlobanov/gaido-core';
 import { trpc } from '../lib/trpc';
 import { httpUrl } from '../lib/url';
 import { useUiStore } from '../store';
@@ -450,6 +451,7 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
 
@@ -554,6 +556,31 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
                 </ul>
               ) : null}
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={continueNode.isPending}
+                onClick={() => continueNode.mutate({ critiqueNodeId: nodeId })}
+                data-testid="sidebar-continue"
+                title="Start the next coder attempt from this critique"
+                className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+              >
+                {continueNode.isPending ? 'Continuing…' : 'Continue'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                data-testid="sidebar-edit-critique"
+                className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-ink"
+              >
+                Edit
+              </button>
+              {continueNode.error ? (
+                <span className="font-mono text-xs text-sanguine">
+                  {continueNode.error.message}
+                </span>
+              ) : null}
+            </div>
           </Section>
         ) : null}
 
@@ -630,6 +657,20 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
             setSwitchOpen(false);
             utils.nodes.list.invalidate();
             setSelectedNodeId(newId);
+          }}
+        />
+      ) : null}
+
+      {editOpen && currentRun?.critique ? (
+        <EditCritiqueModal
+          nodeId={nodeId}
+          initial={critiqueFeedback(currentRun.critique)}
+          continuing={continueNode.isPending}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => setEditOpen(false)}
+          onContinue={() => {
+            setEditOpen(false);
+            continueNode.mutate({ critiqueNodeId: nodeId });
           }}
         />
       ) : null}
@@ -1356,6 +1397,123 @@ function ForkModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Overwrite an automated critique before continuing. Pre-filled with the
+ * critique's feedback (overall + suggestions, the same text `continue` sends
+ * the coder). "Save & Continue" persists the edit and immediately spawns the
+ * next coder; "Save" just persists. Editing folds suggestions into the prose
+ * server-side, so the panel shows the artist's version with no duplication.
+ */
+function EditCritiqueModal({
+  nodeId,
+  initial,
+  continuing,
+  onClose,
+  onSaved,
+  onContinue,
+}: {
+  nodeId: string;
+  initial: string;
+  continuing: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  onContinue: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [draft, setDraft] = useState(initial);
+  const edit = trpc.runs.editCritique.useMutation();
+
+  const empty = !draft.trim();
+  const dirty = draft.trim() !== initial.trim();
+  const busy = edit.isPending || continuing;
+
+  // Skip the write when nothing changed (Save & Continue still works on an
+  // untouched critique), but always refresh so the panel reflects the edit.
+  const persist = async () => {
+    if (dirty) await edit.mutateAsync({ nodeId, overall: draft });
+    utils.nodes.get.invalidate({ nodeId });
+    utils.nodes.list.invalidate();
+  };
+  const handleSave = async () => {
+    try {
+      await persist();
+    } catch {
+      return;
+    }
+    onSaved();
+  };
+  const handleSaveAndContinue = async () => {
+    if (empty) return;
+    try {
+      await persist();
+    } catch {
+      return;
+    }
+    onContinue();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        data-testid="edit-critique-form"
+        className="w-full max-w-lg border border-hairline-deep bg-paper p-6"
+      >
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-xl text-ink">Edit critique</h3>
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+            Drives the next run
+          </span>
+        </div>
+        <textarea
+          autoFocus
+          rows={8}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="What worked, what didn't, what to try next…"
+          data-testid="edit-critique-textarea"
+          className="w-full resize-y border border-hairline bg-paper-deep px-3 py-2 font-serif text-base leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+        />
+        {edit.error ? (
+          <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
+            {edit.error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!dirty || busy}
+            onClick={handleSave}
+            data-testid="edit-critique-save"
+            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+          >
+            {edit.isPending && !continuing ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            disabled={empty || busy}
+            onClick={handleSaveAndContinue}
+            data-testid="edit-critique-continue"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+          >
+            {continuing ? 'Continuing…' : 'Save & Continue'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

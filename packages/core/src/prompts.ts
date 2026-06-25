@@ -1,8 +1,37 @@
+import type { Critique } from './types.js';
+
 /**
  * Filename the coder writes at the worktree root to talk back to the artist.
  * Picked up by the orchestrator after the coder phase commits.
  */
 export const MESSAGE_FILENAME = 'MESSAGE.md';
+
+/**
+ * Render a critique into the feedback text handed to the next coder when the
+ * artist continues from it — and the default text shown in the Edit-critique
+ * dialog. The coder resumes the prior session but never saw the critique (the
+ * critic is a separate agent), so this string is the only channel for the
+ * critique to reach the next attempt: the `overall` assessment first, then any
+ * `suggestions` as a bulleted list. Editing a critique folds everything into
+ * `overall` and clears `suggestions`, so re-rendering an edited critique
+ * yields just the artist's prose with no duplication.
+ */
+export function critiqueFeedback(
+  critique: Pick<Critique, 'overall' | 'suggestions'>
+): string {
+  const parts: string[] = [];
+  const overall = critique.overall?.trim();
+  if (overall) parts.push(overall);
+  const suggestions = (critique.suggestions ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (suggestions.length) {
+    parts.push(
+      ['Suggestions to address:', ...suggestions.map((s) => `- ${s}`)].join('\n')
+    );
+  }
+  return parts.join('\n\n');
+}
 
 export type CoderMessageKind = 'question' | 'limitation' | 'note';
 

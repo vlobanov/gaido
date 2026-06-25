@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { schema, nodeId as newNodeId } from '@vadimlobanov/gaido-core';
+import { schema, nodeId as newNodeId, critiqueFeedback } from '@vadimlobanov/gaido-core';
 import type { Critique } from '@vadimlobanov/gaido-core';
 import type { Node } from '@vadimlobanov/gaido-core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
@@ -686,7 +686,14 @@ export const nodesRouter = router({
         .from(schema.runs)
         .where(eq(schema.runs.id, critique.currentRunId))
         .get();
-      const notes = critiqueRun?.critique?.overall?.trim();
+      // The next coder resumes the prior session but never saw the critique
+      // (the critic is a separate agent), so the full feedback — overall plus
+      // any suggestions — has to ride the instruction. `critiqueFeedback`
+      // composes it; an edited critique already folded its suggestions into
+      // `overall`, so this stays a single clean block either way.
+      const notes = critiqueRun?.critique
+        ? critiqueFeedback(critiqueRun.critique).trim()
+        : undefined;
       if (!notes) {
         throw new TRPCError({
           code: 'BAD_REQUEST',

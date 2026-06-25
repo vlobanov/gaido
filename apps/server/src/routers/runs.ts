@@ -46,6 +46,17 @@ export const runsRouter = router({
     }),
 
   /**
+   * Overwrite an automated critique's text (the sidebar "Edit" action). Folds
+   * the artist's prose into `overall`, clears `suggestions`, and preserves the
+   * structured fields the rest of the UI reads (rating, proposed rules).
+   */
+  editCritique: publicProcedure
+    .input(z.object({ nodeId: z.string(), overall: z.string() }))
+    .mutation(({ ctx, input }) => {
+      return ctx.orchestrator.editCritique(input.nodeId, input.overall);
+    }),
+
+  /**
    * Extract this run's committed code into `runs/.previews/<commit>/` and open
    * that folder in the OS file manager. Local-first single-user: the server
    * runs on the artist's machine, so the folder opens on their desktop.

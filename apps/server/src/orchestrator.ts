@@ -289,6 +289,53 @@ export class Orchestrator {
     return run;
   }
 
+  /**
+   * Overwrite an automated critique's text in place (the sidebar "Edit"
+   * action). The edited prose lands in `overall` and `suggestions` is cleared:
+   * the artist has folded the actionable points into their own words, and
+   * clearing the list keeps `critiqueFeedback` from re-appending the originals
+   * when they continue. `rating`, `strengths`, `weaknesses`, and
+   * `proposedRules` survive untouched, so the rating badge and one-click rule
+   * promotion keep working against the same run.
+   */
+  editCritique(nodeId: string, overall: string): Run {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) throw new Error(`node ${nodeId} not found`);
+    if (node.kind !== 'critique') {
+      throw new Error('critique can only be edited on critique nodes');
+    }
+    if (!node.currentRunId) throw new Error('no critique to edit');
+    const run = this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, node.currentRunId))
+      .get();
+    if (!run?.critique) throw new Error('no critique to edit');
+    const trimmed = overall.trim();
+    if (!trimmed) throw new Error('critique cannot be empty');
+    const critique: Critique = {
+      ...run.critique,
+      overall: trimmed,
+      suggestions: [],
+    };
+    this.db
+      .update(schema.runs)
+      .set({ critique, updatedAt: Date.now() })
+      .where(eq(schema.runs.id, run.id))
+      .run();
+    const updated = this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, run.id))
+      .get();
+    if (!updated) throw new Error(`run ${run.id} not found after edit`);
+    return updated;
+  }
+
   /** Cancel an in-flight run. Idempotent. */
   cancel(nodeId: string): void {
     const node = this.db
