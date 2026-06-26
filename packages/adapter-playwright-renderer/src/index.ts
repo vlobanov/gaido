@@ -140,18 +140,28 @@ async function doRender(
       appendSilent(pageLogFile, `[${msg.type()}] ${msg.text()}\n`);
     });
 
-    // Install fake clock BEFORE navigation. setTimeout/rAF/Date in the page
-    // become deterministic; we drive time via fastForward.
+    // Install AND pause the fake clock before navigation. install() alone
+    // fakes Date / performance.now / rAF but lets them keep advancing with
+    // REAL wall-clock time — so every real second spent in page.screenshot()
+    // (slow for WebGL scenes: "GPU stall due to ReadPixels") leaks into the
+    // page's performance.now(). An animation reading it then lurches forward
+    // far more than stepMs per frame (a 5s render measured ~37s of page time).
+    // pauseAt() freezes time so it advances ONLY by our explicit
+    // fastForward()/runFor() calls — the whole point of deterministic capture.
     await page.clock.install({ time: new Date(0) });
+    await page.clock.pauseAt(new Date(0));
 
     const indexUrl = `http://127.0.0.1:${server.port}/index.html`;
     await page.goto(indexUrl, { waitUntil: 'load', timeout: 30_000 });
 
-    // Warm up: real wall-clock grace for any post-load init that depends
-    // on real network / filesystem. Then run fake clock briefly to drain
-    // any queued microtask/animation init.
+    // Warm up with REAL wall-clock grace only: lets post-load init that runs
+    // on real events (CDN module fetch, texture/font decode) settle. We do NOT
+    // advance the fake clock here — the capture loop drives the animation from
+    // t≈0 (frame i at t=(i+1)*step), so the video maps onto animation time
+    // [0, duration] instead of skipping the first warmup second. (A scene that
+    // *defers* its start via a fake setTimeout would begin a few frames in
+    // rather than off-screen; rare for the rAF-driven animations this renders.)
     await new Promise((r) => setTimeout(r, cfg.warmupMs));
-    await page.clock.runFor(cfg.warmupMs);
 
     let maxScroll = 0;
     if (cfg.capture === 'scroll') {
