@@ -171,3 +171,6 @@ export async function startServer(
 
 export type { AppRouter } from './routers/index.js';
 export type { Context } from './context.js';
+// `publishCanvas` is exposed via the `@vadimlobanov/gaido-server/publish`
+// subpath (CLI-only) rather than here, so the web's `AppRouter` import doesn't
+// pull Node-only code (Buffer + R2 fetch) into its DOM-lib typecheck.

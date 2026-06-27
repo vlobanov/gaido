@@ -36,6 +36,20 @@ export default defineConfig({
     port: 4288,
     openBrowser: true,
   },
+
+  // Publish a finished canvas as a static read-only site (gaido publish →
+  // Cloudflare R2 + Worker). Uncomment, set siteUrl, and put the R2 credentials
+  // in .env (see .env.example + infra/worker/README.md in the gaido repo).
+  // publish: {
+  //   siteUrl: 'https://graphs.example.com',
+  //   r2: {
+  //     accountId: process.env.GAIDO_R2_ACCOUNT_ID ?? '',
+  //     bucket: process.env.GAIDO_R2_BUCKET ?? '',
+  //     accessKeyId: process.env.GAIDO_R2_ACCESS_KEY_ID ?? '',
+  //     secretAccessKey: process.env.GAIDO_R2_SECRET_ACCESS_KEY ?? '',
+  //   },
+  //   include: { livePreviews: false }, // true ALSO publishes each run's source code
+  // },
 });
 `;
 
@@ -47,6 +61,12 @@ export const envExampleTemplate = `# API keys for adapter implementations.
 
 # Used by geminiCritic (sends rendered video to Gemini via OpenRouter).
 # OPENROUTER_API_KEY=
+
+# Used by \`gaido publish\` (Cloudflare R2, S3 API). See infra/worker/README.md.
+# GAIDO_R2_ACCOUNT_ID=
+# GAIDO_R2_BUCKET=
+# GAIDO_R2_ACCESS_KEY_ID=
+# GAIDO_R2_SECRET_ACCESS_KEY=
 `;
 
 export const gitignoreTemplate = `# Gaido runtime state

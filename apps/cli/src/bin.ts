@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { runInit } from './commands/init.js';
 import { runServe } from './commands/serve.js';
+import { runPublish, runUnpublish } from './commands/publish.js';
 import { skeletonCatalog } from './templates.js';
 
 function printHelp(): void {
@@ -19,6 +20,8 @@ ${pc.bold('Usage:')}
 ${pc.bold('Commands:')}
   ${pc.cyan('init')}      Scaffold a new Gaido project in the current directory
   ${pc.cyan('serve')}     Start the server and open the UI (default)
+  ${pc.cyan('publish')}   Publish a canvas as a static site to Cloudflare R2
+  ${pc.cyan('unpublish')} Remove a published canvas from Cloudflare R2
   ${pc.cyan('help')}      Show this help
 
 ${pc.bold('Init scaffolds these built-in skeletons under ./skeletons/:')}
@@ -42,6 +45,12 @@ async function main(): Promise<void> {
     case 'serve':
     case undefined:
       await runServe(cwd);
+      return;
+    case 'publish':
+      await runPublish(cwd, args.slice(1));
+      return;
+    case 'unpublish':
+      await runUnpublish(cwd, args.slice(1));
       return;
     case 'help':
     case '--help':

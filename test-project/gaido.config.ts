@@ -49,4 +49,20 @@ export default defineConfig({
     port: 4288,
     openBrowser: true,
   },
+
+  // Static publishing target for `gaido publish` (Cloudflare R2 + Worker).
+  // Credentials come from env (~/.gaido/.env or ./.env); see infra/worker/README.md.
+  publish: {
+    siteUrl: 'https://graphs.gaido.ai',
+    r2: {
+      accountId: process.env.GAIDO_R2_ACCOUNT_ID ?? '',
+      bucket: process.env.GAIDO_R2_BUCKET ?? '',
+      accessKeyId: process.env.GAIDO_R2_ACCESS_KEY_ID ?? '',
+      secretAccessKey: process.env.GAIDO_R2_SECRET_ACCESS_KEY ?? '',
+      // Point at any S3-compatible endpoint (e.g. local MinIO) for testing.
+      ...(process.env.GAIDO_R2_ENDPOINT ? { endpoint: process.env.GAIDO_R2_ENDPOINT } : {}),
+      ...(process.env.GAIDO_R2_REGION ? { region: process.env.GAIDO_R2_REGION } : {}),
+    },
+    include: { livePreviews: true },
+  },
 });

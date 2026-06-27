@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NodeStatus } from '@vadimlobanov/gaido-core';
 import { StatusBadge, isActiveStatus, type PhaseTiming } from './StatusBadge';
 import { trpc } from '../lib/trpc';
+import { READ_ONLY } from '../lib/static';
 import { ManualCritiqueModal, critiqueAuthorLabel } from './ManualCritiqueModal';
 
 export interface CritiqueCardData extends PhaseTiming {
@@ -84,6 +85,10 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
               className="font-serif text-sm italic text-ink-faint"
             >
               Click to add notes
+            </p>
+          ) : READ_ONLY ? (
+            <p className="font-serif text-sm italic text-ink-faint">
+              No critique yet
             </p>
           ) : (
             <div className="space-y-2">

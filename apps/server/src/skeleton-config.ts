@@ -76,14 +76,15 @@ function assertNoProcessGlobalFields(cfg: SkeletonConfig, file: string): void {
     if (obj.server !== undefined) forbidden.push(`${prefix}server`);
     if (obj.concurrency !== undefined) forbidden.push(`${prefix}concurrency`);
     if (obj.staticPreview !== undefined) forbidden.push(`${prefix}staticPreview`);
+    if (obj.publish !== undefined) forbidden.push(`${prefix}publish`);
   };
   scan(cfg as Record<string, unknown>, '');
   scan(cfg.extend as Record<string, unknown> | undefined, 'extend.');
   if (forbidden.length > 0) {
     throw new Error(
       `[gaido] ${file}: ${forbidden.join(', ')} cannot be set in a skeleton ` +
-        `config — server, concurrency, and staticPreview are process-global; ` +
-        `set them in gaido.config.ts instead.`
+        `config — server, concurrency, staticPreview, and publish are ` +
+        `process-global; set them in gaido.config.ts instead.`
     );
   }
 }

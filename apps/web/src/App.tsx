@@ -8,11 +8,26 @@ import { Toolbar } from './components/Toolbar';
 import { EmptyState } from './components/EmptyState';
 import { DebugBridge } from './lib/debug';
 import { canvasHref, parseIdentifier } from './lib/canvas-url';
+import { STATIC_MODE, EMBED, getSnapshot } from './lib/static';
 
 export function App() {
   const selectedNodeId = useUiStore((s) => s.selectedNodeId);
   const [, setLocation] = useLocation();
   const [matched, params] = useRoute<{ identifier: string }>('/c/:identifier');
+
+  // Published mode: a single embedded canvas, rendered directly — no routing,
+  // no redirect — so the page stays at its `/<slug>` URL and survives a reload
+  // with no server behind it.
+  if (STATIC_MODE) {
+    const c = getSnapshot().canvas;
+    return (
+      <CanvasShell
+        identifier={`${c.slug}-${c.id}`}
+        selectedNodeId={selectedNodeId}
+        setLocation={() => {}}
+      />
+    );
+  }
 
   return matched ? (
     <CanvasShell
@@ -110,8 +125,8 @@ function CanvasShell({ identifier, selectedNodeId, setLocation }: CanvasShellPro
 
   return (
     <div className="flex h-full w-full flex-col bg-paper text-ink">
-      <DebugBridge canvasId={canvas.id} />
-      <Toolbar nodeCount={nodes.length} canvas={canvas} />
+      {!STATIC_MODE && <DebugBridge canvasId={canvas.id} />}
+      {!EMBED && <Toolbar nodeCount={nodes.length} canvas={canvas} />}
       <div className="flex min-h-0 flex-1">
         <main className="relative min-w-0 flex-1">
           {isInitialNodesLoad ? (

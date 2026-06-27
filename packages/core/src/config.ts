@@ -79,6 +79,59 @@ export interface PostCoderCheck {
   cwd?: 'workdir' | 'project';
 }
 
+/**
+ * Static publishing target (`gaido publish`). Process-global like `server` /
+ * `staticPreview` — set it in gaido.config.ts, never in a skeleton overlay.
+ * Everything (pages, the viewer bundle, media, live previews) is served from
+ * the single `siteUrl` origin; R2 object keys mirror the URL paths. See
+ * `docs/publishing.md`.
+ */
+export interface PublishConfig {
+  /**
+   * The one origin that serves published canvases — pages at `/<slug>`, the
+   * viewer bundle at `/assets/*`, media at `/<slug>/artifacts/*`, and live
+   * previews at `/p/<sha>/*`. No trailing slash, e.g. 'https://graphs.gaido.ai'.
+   */
+  siteUrl: string;
+  /** Cloudflare R2 bucket the bundle uploads to (S3 API). Creds belong in env. */
+  r2: {
+    accountId: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    /**
+     * Override the S3 endpoint. Defaults to
+     * `https://<accountId>.r2.cloudflarestorage.com`. Set this to target any
+     * S3-compatible store (e.g. a local MinIO at `http://127.0.0.1:9000`);
+     * `accountId` is then unused.
+     */
+    endpoint?: string;
+    /** SigV4 signing region. Default `'auto'` (R2). MinIO often wants `'us-east-1'`. */
+    region?: string;
+  };
+  /** What rides the published snapshot. */
+  include?: {
+    /**
+     * Archive + publish each run's committed source so its live preview works
+     * on the published site. **Publishes source code.** Default false.
+     */
+    livePreviews?: boolean;
+    /** Bake the (filtered) event timeline into the snapshot. Default false. */
+    events?: boolean;
+    /** Publish node instructions (the artist's prompts). Default true. */
+    instructions?: boolean;
+    /** Publish LESSONS.md project rules. Default true. */
+    rules?: boolean;
+  };
+  /** Extra redaction beyond the always-stripped fields (sessions, paths, cost…). */
+  redact?: {
+    /** Strip the artist's reply-thread text. Default true. */
+    artistFollowUp?: boolean;
+  };
+  /** Map a canvas to its public URL slug. Default: the canvas's own slug. */
+  slug?: (canvas: { id: string; slug: string; name: string | null }) => string;
+}
+
 export interface GaidoConfig {
   name?: string;
   description?: string;
@@ -117,6 +170,7 @@ export interface GaidoConfig {
     openBrowser?: boolean;
   };
   staticPreview?: StaticPreviewConfig;
+  publish?: PublishConfig;
 }
 
 export function defineConfig(config: GaidoConfig): GaidoConfig {
@@ -171,12 +225,12 @@ export function resolveCoderRegistry(
  * field REPLACES the project value; a field under `extend` MERGES into it —
  * the `postCoderChecks` array appends, `render` shallow-merges key-by-key.
  *
- * `server`, `concurrency`, and `staticPreview` are process-global (bound once
- * at startup), so they cannot be set per-skeleton: they're omitted from the
- * type here and rejected at load time.
+ * `server`, `concurrency`, `staticPreview`, and `publish` are process-global
+ * (bound once at startup / a deployment decision), so they cannot be set
+ * per-skeleton: they're omitted from the type here and rejected at load time.
  */
 export type SkeletonConfigLayer = Partial<
-  Omit<GaidoConfig, 'server' | 'concurrency' | 'staticPreview'>
+  Omit<GaidoConfig, 'server' | 'concurrency' | 'staticPreview' | 'publish'>
 >;
 
 export interface SkeletonConfig extends SkeletonConfigLayer {

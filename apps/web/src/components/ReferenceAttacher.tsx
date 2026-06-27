@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../lib/trpc';
-import { httpUrl } from '../lib/url';
+import { artifactUrl, referenceUrl, READ_ONLY } from '../lib/static';
 
 /**
  * Attach references — pasted/dropped images and other runs by id — to a coder
@@ -174,7 +174,7 @@ export function BoundReferences({ nodeId }: { nodeId: string }) {
             >
               {r.kind === 'image' ? (
                 <img
-                  src={`${httpUrl}/references/${r.id}`}
+                  src={referenceUrl(r.id)}
                   alt=""
                   className="h-8 w-8 shrink-0 border border-hairline object-cover"
                 />
@@ -186,30 +186,36 @@ export function BoundReferences({ nodeId }: { nodeId: string }) {
               <span className="flex-1 truncate font-serif text-sm text-ink" title={r.label}>
                 {r.label}
               </span>
-              <button
-                type="button"
-                onClick={() => remove.mutate({ referenceId: r.id })}
-                data-testid="reference-chip-remove"
-                aria-label="Remove reference"
-                className="shrink-0 px-1 font-mono text-xs text-ink-muted hover:text-sanguine"
-              >
-                ×
-              </button>
+              {!READ_ONLY && (
+                <button
+                  type="button"
+                  onClick={() => remove.mutate({ referenceId: r.id })}
+                  data-testid="reference-chip-remove"
+                  aria-label="Remove reference"
+                  className="shrink-0 px-1 font-mono text-xs text-ink-muted hover:text-sanguine"
+                >
+                  ×
+                </button>
+              )}
             </li>
           ))}
         </ul>
       ) : null}
-      <ImageDropZone onFiles={addImages} busy={attachImage.isPending} />
-      <RunIdInput
-        onResolved={(r) => attachRun.mutate({ nodeId, runId: r.runId })}
-        onError={setError}
-        busy={attachRun.isPending}
-      />
-      {error ? (
-        <p data-testid="reference-error" className="font-mono text-xs text-sanguine">
-          {error}
-        </p>
-      ) : null}
+      {!READ_ONLY && (
+        <>
+          <ImageDropZone onFiles={addImages} busy={attachImage.isPending} />
+          <RunIdInput
+            onResolved={(r) => attachRun.mutate({ nodeId, runId: r.runId })}
+            onError={setError}
+            busy={attachRun.isPending}
+          />
+          {error ? (
+            <p data-testid="reference-error" className="font-mono text-xs text-sanguine">
+              {error}
+            </p>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -241,7 +247,7 @@ function ChipRow({
             />
           ) : r.kind === 'run' && r.thumbnailArtifactId ? (
             <img
-              src={`${httpUrl}/artifacts/${r.thumbnailArtifactId}`}
+              src={artifactUrl(r.thumbnailArtifactId)}
               alt=""
               className="h-7 w-7 border border-hairline object-cover"
             />

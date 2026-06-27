@@ -13,4 +13,5 @@ This file is the orientation. Detail lives in the imports below; code is the sou
 
 - **PRODUCT.md** and **DESIGN.md** — brand, register, visual system. Defend design choices against the five principles in `docs/conventions.md`.
 - **TODO.md** — known leftover issues and still-ahead work.
+- **`docs/publishing.md`** — design for static export of a canvas to Cloudflare (R2 + Worker). Not yet built.
 - **`playwright-testing` skill** — load when driving the UI via Playwright MCP. Covers `window.__gaido` and the `data-testid` map.

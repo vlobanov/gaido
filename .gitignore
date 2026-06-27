@@ -6,6 +6,7 @@ dist/
 
 # Build output
 **/dist/
+**/dist-static/
 **/build/
 
 # IDE
@@ -25,6 +26,9 @@ skills-lock.json
 # Playwright MCP session artifacts
 .playwright-mcp/
 
+# Serena MCP project state
+.serena/
+
 # Local test screenshots / one-off outputs at repo root
 /*.png
 /*.jpeg
@@ -36,5 +40,6 @@ apps/cli/README.md
 apps/cli/LICENSE
 apps/cli/skills/
 apps/server/web-dist/
+apps/server/web-dist-static/
 apps/server/LICENSE
 packages/*/LICENSE

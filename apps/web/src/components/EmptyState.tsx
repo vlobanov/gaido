@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { trpc } from '../lib/trpc';
+import { READ_ONLY } from '../lib/static';
 import { readPref, writePref } from '../lib/prefs';
 import {
   ReferenceDraftField,
@@ -37,14 +38,16 @@ export function EmptyState({ canvas }: EmptyStateProps) {
           visual, the renderer captures it, the critic notes what to fork
           next. Branch from there as long as the work is interesting.
         </p>
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          data-testid="empty-create-root"
-          className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint"
-        >
-          Seed root node
-        </button>
+        {!READ_ONLY && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            data-testid="empty-create-root"
+            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint"
+          >
+            Seed root node
+          </button>
+        )}
       </div>
 
       {modalOpen ? <CreateRootModal canvas={canvas} onClose={() => setModalOpen(false)} /> : null}

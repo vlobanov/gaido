@@ -17,7 +17,7 @@ const requireFromCli = createRequire(import.meta.url);
  * adapter factories to the running version when a project-local install
  * exists at a different one.
  */
-function buildFrameworkAlias(): Record<string, string> {
+export function buildFrameworkAlias(): Record<string, string> {
   const alias: Record<string, string> = {
     gaido: resolve(here, '..', 'index.ts'),
   };

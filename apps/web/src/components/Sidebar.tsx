@@ -8,7 +8,7 @@ import type {
 } from '@vadimlobanov/gaido-core';
 import { critiqueFeedback } from '@vadimlobanov/gaido-core';
 import { trpc } from '../lib/trpc';
-import { httpUrl } from '../lib/url';
+import { artifactUrl, READ_ONLY } from '../lib/static';
 import { useUiStore } from '../store';
 import { StatusBadge, isActiveStatus } from './StatusBadge';
 import { EventStream } from './EventStream';
@@ -218,50 +218,52 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
 
         <BoundReferences nodeId={nodeId} />
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-          <button
-            type="button"
-            onClick={() => setForkOpen(true)}
-            disabled={!canFork}
-            data-testid="sidebar-fork"
-            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
-            title={canFork ? undefined : 'Waiting for coder to finish'}
-          >
-            Fork
-          </button>
-          <button
-            type="button"
-            disabled={!canRetry}
-            onClick={() => setRetryOpen(true)}
-            data-testid="sidebar-retry"
-            title={retryTooltip}
-            className="border border-hairline bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
-          >
-            Retry
-          </button>
-          {renderFailed ? (
+        {!READ_ONLY && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
             <button
               type="button"
-              onClick={() => rerunRender.mutate({ nodeId })}
-              disabled={rerunRender.isPending}
-              data-testid="sidebar-rerender"
-              title="Re-run only the renderer against the code this run already committed — skips the coder"
+              onClick={() => setForkOpen(true)}
+              disabled={!canFork}
+              data-testid="sidebar-fork"
               className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+              title={canFork ? undefined : 'Waiting for coder to finish'}
             >
-              Re-render
+              Fork
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            data-testid="sidebar-delete"
-            className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
-          >
-            Delete
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={!canRetry}
+              onClick={() => setRetryOpen(true)}
+              data-testid="sidebar-retry"
+              title={retryTooltip}
+              className="border border-hairline bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+            >
+              Retry
+            </button>
+            {renderFailed ? (
+              <button
+                type="button"
+                onClick={() => rerunRender.mutate({ nodeId })}
+                disabled={rerunRender.isPending}
+                data-testid="sidebar-rerender"
+                title="Re-run only the renderer against the code this run already committed — skips the coder"
+                className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+              >
+                Re-render
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="sidebar-delete"
+              className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
+            >
+              Delete
+            </button>
+          </div>
+        )}
 
-        {rerunRender.error ? (
+        {!READ_ONLY && rerunRender.error ? (
           <p
             data-testid="rerender-error"
             className="font-mono text-xs uppercase tracking-caps text-sanguine"
@@ -362,6 +364,7 @@ function ConversationThread({
         ))}
       </div>
 
+      {!READ_ONLY && (
       <form onSubmit={onSubmit} className="flex flex-col gap-2 pt-2">
         <textarea
           value={draft}
@@ -396,6 +399,7 @@ function ConversationThread({
           ) : null}
         </div>
       </form>
+      )}
     </Section>
   );
 }
@@ -566,31 +570,33 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
                 </ul>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                disabled={continueNode.isPending}
-                onClick={() => continueNode.mutate({ critiqueNodeId: nodeId })}
-                data-testid="sidebar-continue"
-                title="Start the next coder attempt from this critique"
-                className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
-              >
-                {continueNode.isPending ? 'Continuing…' : 'Continue'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                data-testid="sidebar-edit-critique"
-                className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-ink"
-              >
-                Edit
-              </button>
-              {continueNode.error ? (
-                <span className="font-mono text-xs text-sanguine">
-                  {continueNode.error.message}
-                </span>
-              ) : null}
-            </div>
+            {!READ_ONLY && (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={continueNode.isPending}
+                  onClick={() => continueNode.mutate({ critiqueNodeId: nodeId })}
+                  data-testid="sidebar-continue"
+                  title="Start the next coder attempt from this critique"
+                  className="border border-sanguine bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint disabled:opacity-40 disabled:hover:bg-paper"
+                >
+                  {continueNode.isPending ? 'Continuing…' : 'Continue'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  data-testid="sidebar-edit-critique"
+                  className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-ink"
+                >
+                  Edit
+                </button>
+                {continueNode.error ? (
+                  <span className="font-mono text-xs text-sanguine">
+                    {continueNode.error.message}
+                  </span>
+                ) : null}
+              </div>
+            )}
           </Section>
         ) : null}
 
@@ -604,57 +610,59 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
           </Section>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-          <button
-            type="button"
-            onClick={() => setForkOpen(true)}
-            data-testid="sidebar-fork"
-            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
-          >
-            Fork
-          </button>
-          <button
-            type="button"
-            onClick={() => setSwitchOpen(true)}
-            data-testid="sidebar-switch-coder"
-            className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
-          >
-            Switch coder
-          </button>
-          {isHumanCritic ? null : (
-            <>
-              <button
-                type="button"
-                disabled={!canTrigger || retryNode.isPending}
-                onClick={() => retryNode.mutate({ nodeId })}
-                data-testid="sidebar-retry"
-                className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
-              >
-                {retryNode.isPending ? 'Starting...' : runLabel}
-              </button>
-              <button
-                type="button"
-                disabled={!canTrigger}
-                onClick={() => setManualOpen(true)}
-                data-testid="sidebar-critique-manually"
-                title="Write the critique yourself instead of running the critic"
-                className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
-              >
-                Critique manually
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            data-testid="sidebar-delete"
-            className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
-          >
-            Delete
-          </button>
-        </div>
+        {!READ_ONLY && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+            <button
+              type="button"
+              onClick={() => setForkOpen(true)}
+              data-testid="sidebar-fork"
+              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
+            >
+              Fork
+            </button>
+            <button
+              type="button"
+              onClick={() => setSwitchOpen(true)}
+              data-testid="sidebar-switch-coder"
+              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep"
+            >
+              Switch coder
+            </button>
+            {isHumanCritic ? null : (
+              <>
+                <button
+                  type="button"
+                  disabled={!canTrigger || retryNode.isPending}
+                  onClick={() => retryNode.mutate({ nodeId })}
+                  data-testid="sidebar-retry"
+                  className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+                >
+                  {retryNode.isPending ? 'Starting...' : runLabel}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canTrigger}
+                  onClick={() => setManualOpen(true)}
+                  data-testid="sidebar-critique-manually"
+                  title="Write the critique yourself instead of running the critic"
+                  className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+                >
+                  Critique manually
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="sidebar-delete"
+              className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
+            >
+              Delete
+            </button>
+          </div>
+        )}
 
-        {retryNode.error ? (
+        {!READ_ONLY && retryNode.error ? (
           <p className="font-mono text-xs text-sanguine">{retryNode.error.message}</p>
         ) : null}
       </div>
@@ -820,6 +828,11 @@ function HumanCritiqueEditor({
     },
   });
 
+  // Read-only published canvas: a human critique is a write surface — hide it
+  // entirely. The persisted critique still renders read-only via the critique
+  // panel above. Placed after all hooks so the rules-of-hooks order holds.
+  if (READ_ONLY) return null;
+
   const dirty = draft !== initial;
   const hasNotes = !!draft.trim();
   const busy = save.isPending || isContinuing;
@@ -930,41 +943,45 @@ function RulesPanel({ proposedRules }: { proposedRules: string[] }) {
                 <span className="flex-1 font-serif text-sm leading-snug text-ink-soft">
                   {rule}
                 </span>
-                <button
-                  type="button"
-                  disabled={done || promote.isPending}
-                  onClick={() => promote.mutate({ rule })}
-                  data-testid="promote-rule"
-                  className="shrink-0 border border-hairline-deep bg-paper px-2.5 py-1 font-mono text-[10px] uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:cursor-default disabled:border-hairline disabled:bg-paper disabled:text-ink-faint"
-                >
-                  {done ? '✓ in rules' : 'Promote'}
-                </button>
+                {!READ_ONLY && (
+                  <button
+                    type="button"
+                    disabled={done || promote.isPending}
+                    onClick={() => promote.mutate({ rule })}
+                    data-testid="promote-rule"
+                    className="shrink-0 border border-hairline-deep bg-paper px-2.5 py-1 font-mono text-[10px] uppercase tracking-caps text-ink-soft transition-colors hover:bg-paper-deep disabled:cursor-default disabled:border-hairline disabled:bg-paper disabled:text-ink-faint"
+                  >
+                    {done ? '✓ in rules' : 'Promote'}
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       ) : null}
 
-      <form onSubmit={onAddDraft} className="flex items-stretch gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Add a rule…"
-          data-testid="add-rule-input"
-          className="flex-1 border border-hairline bg-paper-deep px-3 py-2 font-serif text-sm text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
-        />
-        <button
-          type="submit"
-          disabled={!draft.trim() || promote.isPending}
-          data-testid="add-rule-submit"
-          className="border border-hairline-deep bg-paper px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40"
-        >
-          Add
-        </button>
-      </form>
+      {!READ_ONLY && (
+        <form onSubmit={onAddDraft} className="flex items-stretch gap-2">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Add a rule…"
+            data-testid="add-rule-input"
+            className="flex-1 border border-hairline bg-paper-deep px-3 py-2 font-serif text-sm text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+          />
+          <button
+            type="submit"
+            disabled={!draft.trim() || promote.isPending}
+            data-testid="add-rule-submit"
+            className="border border-hairline-deep bg-paper px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40"
+          >
+            Add
+          </button>
+        </form>
+      )}
 
-      {promote.error ? (
+      {!READ_ONLY && promote.error ? (
         <p className="font-mono text-xs text-sanguine">{promote.error.message}</p>
       ) : null}
     </Section>
@@ -1017,6 +1034,7 @@ function FavoriteToggle({
   isFavorite: boolean;
   onToggle: () => void;
 }) {
+  if (READ_ONLY) return null;
   return (
     <button
       type="button"
@@ -1051,12 +1069,8 @@ function OutputPanel({
     <video
       data-testid="output-video"
       className="aspect-square w-full border border-hairline bg-paper-deep"
-      src={`${httpUrl}/artifacts/${videoArtifactId}`}
-      poster={
-        thumbnailArtifactId
-          ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
-          : undefined
-      }
+      src={artifactUrl(videoArtifactId)}
+      poster={thumbnailArtifactId ? artifactUrl(thumbnailArtifactId) : undefined}
       controls
       loop
       muted
@@ -1066,7 +1080,7 @@ function OutputPanel({
     <img
       data-testid="output-thumbnail"
       className="aspect-square w-full border border-hairline bg-paper-deep object-contain"
-      src={`${httpUrl}/artifacts/${thumbnailArtifactId}`}
+      src={artifactUrl(thumbnailArtifactId)}
       alt="Render thumbnail"
     />
   ) : (
@@ -1122,25 +1136,27 @@ function RunHistory({ nodeId }: { nodeId: string }) {
                 #{total - i}
                 <span className="ml-2 text-ink-faint">{run.status}</span>
               </span>
-              <button
-                type="button"
-                disabled={!hasCode || reveal.isPending}
-                onClick={() => reveal.mutate({ runId: run.id })}
-                data-testid={`reveal-code-${run.id}`}
-                title={
-                  hasCode
-                    ? 'Open this iteration’s code folder'
-                    : 'This iteration produced no code changes'
-                }
-                className="font-mono text-xs uppercase tracking-caps text-ink-soft underline decoration-hairline-deep underline-offset-4 transition-colors hover:text-ink disabled:no-underline disabled:opacity-40 disabled:hover:text-ink-soft"
-              >
-                Reveal code →
-              </button>
+              {!READ_ONLY && (
+                <button
+                  type="button"
+                  disabled={!hasCode || reveal.isPending}
+                  onClick={() => reveal.mutate({ runId: run.id })}
+                  data-testid={`reveal-code-${run.id}`}
+                  title={
+                    hasCode
+                      ? 'Open this iteration’s code folder'
+                      : 'This iteration produced no code changes'
+                  }
+                  className="font-mono text-xs uppercase tracking-caps text-ink-soft underline decoration-hairline-deep underline-offset-4 transition-colors hover:text-ink disabled:no-underline disabled:opacity-40 disabled:hover:text-ink-soft"
+                >
+                  Reveal code →
+                </button>
+              )}
             </li>
           );
         })}
       </ul>
-      {reveal.error ? (
+      {!READ_ONLY && reveal.error ? (
         <p
           data-testid="reveal-code-error"
           className="font-mono text-xs uppercase tracking-caps text-sanguine"
@@ -1921,16 +1937,18 @@ function ConfigSidebar({ nodeId }: { nodeId: string }) {
           </Section>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            data-testid="sidebar-delete"
-            className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
-          >
-            Delete
-          </button>
-        </div>
+        {!READ_ONLY && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="sidebar-delete"
+              className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
 
       {confirmDelete ? (

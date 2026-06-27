@@ -13,7 +13,7 @@ import {
   type PhaseTiming,
 } from './StatusBadge';
 import { trpc } from '../lib/trpc';
-import { httpUrl } from '../lib/url';
+import { artifactUrl, READ_ONLY } from '../lib/static';
 import { Markdown } from './Markdown';
 
 export interface CoderCardData extends PhaseTiming {
@@ -262,12 +262,8 @@ function DoneFrame({
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
 
-  const thumbUrl = thumbnailArtifactId
-    ? `${httpUrl}/artifacts/${thumbnailArtifactId}`
-    : null;
-  const videoUrl = videoArtifactId
-    ? `${httpUrl}/artifacts/${videoArtifactId}`
-    : null;
+  const thumbUrl = artifactUrl(thumbnailArtifactId) || null;
+  const videoUrl = artifactUrl(videoArtifactId) || null;
 
   if (!videoUrl) {
     return (
@@ -630,6 +626,7 @@ function FavoriteToggle({
   isFavorite: boolean;
   onToggle: () => void;
 }) {
+  if (READ_ONLY) return null;
   return (
     <button
       type="button"

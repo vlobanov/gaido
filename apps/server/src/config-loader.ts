@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
 import { defaults, resolveCoderRegistry } from '@vadimlobanov/gaido-core';
-import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck } from '@vadimlobanov/gaido-core';
+import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck, PublishConfig } from '@vadimlobanov/gaido-core';
 
 export interface ResolvedConfig {
   name?: string;
@@ -29,6 +29,11 @@ export interface ResolvedConfig {
    * to bind the server. Process-global — never overridden by skeleton overlays.
    */
   staticPreview: { enabled: boolean; port: number };
+  /**
+   * Static-publishing target (`gaido publish`), or null when the project hasn't
+   * configured one. Process-global — never overridden by skeleton overlays.
+   */
+  publish: PublishConfig | null;
 }
 
 export interface LoadedConfig {
@@ -115,5 +120,6 @@ export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {
         cfg.staticPreview?.port ??
         (cfg.server?.port ?? defaults.server.port) + 1,
     },
+    publish: cfg.publish ?? null,
   };
 }

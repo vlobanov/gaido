@@ -1,0 +1,42 @@
+# Cloudflare Worker config for Gaido static publishing.
+#
+# One Worker, one R2 bucket, one origin. The Worker (src/worker.js) serves R2
+# objects whose keys mirror the URL path. `gaido publish` uploads those keys;
+# this Worker just serves them.
+#
+# Fill in the placeholders marked <...> below, then `wrangler deploy`.
+# See README.md for the full one-time setup.
+
+name = "gaido-graphs"
+main = "src/worker.js"
+
+# Pin the Workers runtime to a known-good date. Bump deliberately, not casually.
+compatibility_date = "2025-06-01"
+
+# Your Cloudflare account id (Dashboard -> Workers & Pages -> right sidebar,
+# or `wrangler whoami`).
+account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
+
+# --- R2 bucket binding -------------------------------------------------------
+# The Worker reads `env.BUCKET`. `binding` is the JS name (must stay "BUCKET");
+# `bucket_name` is the real R2 bucket created with:
+#     wrangler r2 bucket create gaido-graphs
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "gaido-graphs"
+
+# --- Custom domain -----------------------------------------------------------
+# Attach the public hostname AFTER the first `wrangler deploy`. A Workers Custom
+# Domain provisions+manages the edge cert automatically (one wildcard level
+# under your zone's Universal SSL — no Advanced Certificate Manager needed).
+#
+# Easiest: run once, no config edit required:
+#     wrangler deploy --routes graphs.gaido.ai
+#
+# Or declare it here so every deploy reasserts it (uncomment, set your zone):
+# routes = [
+#   { pattern = "graphs.gaido.ai", custom_domain = true }
+# ]
+#
+# A single pattern is enough — the Worker resolves every path (/<slug>,
+# /assets/*, /<slug>/artifacts/*, /p/<sha>/*) off this one origin.
