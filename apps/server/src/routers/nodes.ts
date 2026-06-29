@@ -110,6 +110,25 @@ function resolveCoderName(
   return null;
 }
 
+/**
+ * In-memory twin of `resolveCoderName` over an already-fetched row set — for
+ * `list`, which holds the whole (per-canvas) graph and would otherwise do an
+ * N×depth DB walk. A per-canvas slice is closed under the parent walk (roots
+ * have no parent), so the map always resolves. Null pick → registry default.
+ */
+function resolveCoderNameInRows<
+  T extends { id: string; parentId: string | null; coderName: string | null },
+>(start: T, byId: Map<string, T>, defaultName: string): string {
+  const seen = new Set<string>();
+  let cur: T | undefined = start;
+  while (cur && !seen.has(cur.id)) {
+    if (cur.coderName) return cur.coderName;
+    seen.add(cur.id);
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+  }
+  return defaultName;
+}
+
 /** Nearest coder at or above `startParentId`, skipping critiques. */
 function resolveAncestorCoderId(db: Db, startParentId: string | null): string | null {
   let cursor = startParentId;
@@ -193,9 +212,18 @@ export const nodesRouter = router({
         })
         .from(schema.nodes)
         .leftJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id));
-      return input?.canvasId
+      const rows = input?.canvasId
         ? base.where(eq(schema.nodes.canvasId, input.canvasId)).all()
         : base.all();
+      // Bake each node's effective coder (lineage walk → registry default) so
+      // the graph can label it — parity with `nodes.get` / the snapshot, which
+      // already carry `resolvedCoderName`.
+      const byId = new Map(rows.map((r) => [r.id, r] as const));
+      const defaultName = ctx.config.defaultCoderName;
+      return rows.map((r) => ({
+        ...r,
+        resolvedCoderName: resolveCoderNameInRows(r, byId, defaultName),
+      }));
     }),
 
   get: publicProcedure

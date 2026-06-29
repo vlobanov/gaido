@@ -27,6 +27,7 @@ interface GaidoNode {
   isFavorite: boolean;
   currentRunId: string | null;
   coderName: string | null;
+  resolvedCoderName: string;
   sessionPolicy: SessionPolicy | null;
   autoRunTotal: number | null;
   autoRunRemaining: number | null;
@@ -114,6 +115,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           isFavorite: n.isFavorite,
           currentRunId: n.currentRunId,
           coderName: n.coderName,
+          resolvedCoderName: n.resolvedCoderName,
           sessionPolicy: n.sessionPolicy,
           autoRunTotal: n.autoRunTotal,
           autoRunRemaining: n.autoRunRemaining,

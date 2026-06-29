@@ -118,6 +118,7 @@ function listRow(n: SnapshotNode, snap: GaidoSnapshot) {
     currentRunId: n.currentRunId,
     sessionId: null,
     coderName: n.coderName,
+    resolvedCoderName: n.resolvedCoderName,
     sessionPolicy: n.sessionPolicy,
     isFavorite: n.isFavorite,
     createdAt: n.createdAt,

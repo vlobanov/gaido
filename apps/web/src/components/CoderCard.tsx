@@ -22,6 +22,9 @@ export interface CoderCardData extends PhaseTiming {
   instruction: string;
   status: NodeStatus;
   isFavorite: boolean;
+  /** Effective coder (lineage-resolved). Shown on the card only when the
+   * project registers more than one coder — otherwise it's constant noise. */
+  resolvedCoderName: string;
   currentRunId: string | null;
   autoRunTotal: number | null;
   autoRunRemaining: number | null;
@@ -45,12 +48,33 @@ const FAILED_LIKE: ReadonlySet<NodeStatus> = new Set([
   'interrupted',
 ]);
 
+/**
+ * Small caption naming the coder a node ran under — the graph-level echo of the
+ * seed picker / "Switch coder" choice, so a multi-coder canvas reads at a
+ * glance. Rendered only when more than one coder is registered (see `showCoder`).
+ */
+function CoderTag({ name }: { name: string }) {
+  return (
+    <p
+      data-testid="node-coder"
+      className="mb-2 truncate font-mono text-[10px] uppercase tracking-caps text-ink-muted"
+      title={`Coder · ${name}`}
+    >
+      coder · {name}
+    </p>
+  );
+}
+
 function CoderCardComponent({ data, selected }: NodeProps) {
   const d = data as unknown as CoderCardData;
   const utils = trpc.useUtils();
   const setFavorite = trpc.nodes.setFavorite.useMutation({
     onSuccess: () => utils.nodes.list.invalidate(),
   });
+  // Only worth labelling the coder when the project registers more than one —
+  // the same gate the seed picker uses. Cached + deduped across every card.
+  const coders = trpc.coders.list.useQuery();
+  const showCoder = (coders.data?.length ?? 0) > 1;
 
   const active = isActiveStatus(d.status);
   const done = d.status === 'done';
@@ -74,6 +98,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         data={d}
         selected={selected}
         borderCls={borderCls}
+        showCoder={showCoder}
         onToggleFavorite={() =>
           setFavorite.mutate({ nodeId: d.id, isFavorite: !d.isFavorite })
         }
@@ -100,6 +125,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
       />
 
       <div className="border-t border-hairline px-4 pb-3 pt-3">
+        {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
         {d.instruction ? (
           <p
             className="font-serif text-base leading-snug text-ink"
@@ -157,11 +183,13 @@ const MESSAGE_KIND_GLYPH: Record<CoderMessage['kind'], string> = {
 function MessageOnlyCard({
   data: d,
   borderCls,
+  showCoder,
   onToggleFavorite,
 }: {
   data: CoderCardData;
   selected: boolean;
   borderCls: string;
+  showCoder: boolean;
   onToggleFavorite: () => void;
 }) {
   const message = d.message!;
@@ -184,6 +212,7 @@ function MessageOnlyCard({
           </span>
           <span>{MESSAGE_KIND_LABEL[message.kind]}</span>
         </div>
+        {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
         {d.instruction ? (
           <p
             className="font-serif text-xs italic leading-snug text-ink-muted"
