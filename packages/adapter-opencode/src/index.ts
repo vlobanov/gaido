@@ -116,6 +116,15 @@ async function runCoder(
     `[opencode] spawn ${cfg.bin} model=${cfg.model ?? 'default'}${cfg.effort ? ` variant=${cfg.effort}` : ''}${cfg.agent ? ` agent=${cfg.agent}` : ''} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
   );
 
+  // Snapshot the session BEFORE this turn. `opencode export` reports
+  // whole-session cumulative usage, so on a resumed/continued node we must
+  // diff against this baseline to attribute only THIS run's cost/tokens/tool
+  // calls. Fresh sessions get a zero baseline; a resumed session whose
+  // baseline can't be read yields 'unknown' (usage then skipped, not
+  // over-reported). Done before spawn so nothing else can touch the session
+  // in between.
+  const baseline = await captureBaseline(cfg, input.priorSessionId ?? null, ctx);
+
   return new Promise<CoderResult>((resolve, reject) => {
     const child = spawn(cfg.bin, args, {
       cwd: ctx.workdir,
@@ -226,10 +235,12 @@ async function runCoder(
         );
         return;
       }
-      // Clean exit: harvest tool calls + token usage from the finished session,
-      // then resolve. Enrichment failure is non-fatal — the worktree mutation
-      // (the actual deliverable) already happened.
-      enrichFromExport(cfg, sessionId, ctx).finally(() => resolve({ sessionId }));
+      // Clean exit: harvest this run's tool calls + token usage from the
+      // finished session, then resolve. Enrichment failure is non-fatal — the
+      // worktree mutation (the actual deliverable) already happened.
+      enrichFromExport(cfg, sessionId, baseline, ctx).finally(() =>
+        resolve({ sessionId })
+      );
     });
   });
 }
@@ -245,54 +256,133 @@ function tailErrors(stderr: string): string {
   return stderr.slice(-500).trim();
 }
 
-interface SessionTokens {
+interface SessionUsage {
+  cost: number;
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
 }
 
+const ZERO_USAGE: SessionUsage = {
+  cost: 0,
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 /**
- * Run `opencode export <sessionId>` and emit the session's tool calls and
- * token usage as Gaido events. Best-effort: any failure is logged and
- * swallowed so it never fails an otherwise-successful coder run.
+ * Pre-turn snapshot of the session, used to attribute post-run usage to THIS
+ * run alone. `opencode export` reports whole-session cumulative totals, so a
+ * resumed/continued node would otherwise report the running session total
+ * instead of its own slice. `'unknown'` means the baseline couldn't be read on
+ * a resumed session — usage is then skipped rather than over-reported.
  */
-function enrichFromExport(
+interface Baseline {
+  priorIds: Set<string>;
+  priorUsage: SessionUsage;
+}
+type BaselineResult = Baseline | 'unknown';
+
+const FRESH_BASELINE: Baseline = { priorIds: new Set(), priorUsage: ZERO_USAGE };
+
+/** Snapshot a resumed session before its next turn; zero for a fresh one. */
+async function captureBaseline(
   cfg: ResolvedConfig,
-  sessionId: string | null,
+  priorSessionId: string | null,
   ctx: RunContext
-): Promise<void> {
-  if (!sessionId) return Promise.resolve();
-  return new Promise<void>((resolve) => {
+): Promise<BaselineResult> {
+  if (!priorSessionId) return FRESH_BASELINE;
+  if (ctx.abortSignal.aborted) return 'unknown';
+  const data = await runExport(
+    cfg,
+    priorSessionId,
+    ctx,
+    'opencode.export.baseline.json'
+  );
+  if (!data) {
+    ctx.logger.warn(
+      `[opencode] baseline export ${priorSessionId} unavailable — skipping this run's usage to avoid over-counting the resumed session`
+    );
+    return 'unknown';
+  }
+  return {
+    priorIds: collectMessageIds(data),
+    priorUsage: readSessionUsage(data),
+  };
+}
+
+/**
+ * Run `opencode export <sessionId>`, persist the raw output to the run's log
+ * dir for postmortem, and return the parsed object (or null on any failure,
+ * having logged a reason). Usage capture is the thing most likely to silently
+ * break, so the raw export always lands on disk where it can be inspected —
+ * the previous version swallowed failures to the server console only.
+ */
+function runExport(
+  cfg: ResolvedConfig,
+  sessionId: string,
+  ctx: RunContext,
+  dumpName: string
+): Promise<ExportShape | null> {
+  return new Promise<ExportShape | null>((resolve) => {
     execFile(
       cfg.bin,
       ['export', sessionId],
-      { maxBuffer: 64 * 1024 * 1024 },
+      { maxBuffer: 64 * 1024 * 1024, signal: ctx.abortSignal },
       (err, stdout) => {
+        const raw = typeof stdout === 'string' ? stdout : '';
+        writeRunLog(ctx, dumpName, raw);
         if (err) {
           ctx.logger.warn(`[opencode] export ${sessionId} failed: ${err.message}`);
-          resolve();
+          resolve(null);
+          return;
+        }
+        // `opencode export` prefixes a human line before the JSON object;
+        // start parsing at the first brace.
+        const start = raw.indexOf('{');
+        if (start < 0) {
+          ctx.logger.warn(
+            `[opencode] export ${sessionId}: no JSON object in output (raw → ${dumpName})`
+          );
+          resolve(null);
           return;
         }
         try {
-          // `opencode export` prefixes a human line before the JSON object;
-          // start parsing at the first brace.
-          const start = stdout.indexOf('{');
-          if (start < 0) {
-            resolve();
-            return;
-          }
-          const data = JSON.parse(stdout.slice(start)) as ExportShape;
-          emitExportEvents(data, ctx);
+          resolve(JSON.parse(raw.slice(start)) as ExportShape);
         } catch (e) {
           ctx.logger.warn(
-            `[opencode] export parse failed: ${(e as Error).message}`
+            `[opencode] export ${sessionId} parse failed: ${(e as Error).message} (raw → ${dumpName})`
           );
+          resolve(null);
         }
-        resolve();
       }
     );
   });
+}
+
+/**
+ * Replay this run's tool calls and emit its usage as the delta over the
+ * baseline. Best-effort: any failure is logged and swallowed so it never fails
+ * an otherwise-successful coder run.
+ */
+async function enrichFromExport(
+  cfg: ResolvedConfig,
+  sessionId: string | null,
+  baseline: BaselineResult,
+  ctx: RunContext
+): Promise<void> {
+  if (!sessionId) return;
+  const data = await runExport(cfg, sessionId, ctx, 'opencode.export.json');
+  if (!data) return;
+  if (baseline === 'unknown') {
+    // Couldn't read the pre-turn baseline; emitting the cumulative session
+    // total would over-report a resumed node, so skip usage and tool calls
+    // (we can't tell which are new). The raw export is on disk if needed.
+    return;
+  }
+  emitRunDelta(data, baseline, ctx);
 }
 
 interface ExportShape {
@@ -311,12 +401,24 @@ interface ExportShape {
       cache?: { read?: number; write?: number };
     };
   };
-  messages?: Array<{ parts?: Array<Record<string, unknown>> }>;
+  messages?: Array<{
+    /** `info.id` (e.g. `msg_…`) identifies each message; used to tell this
+     * run's new turns from those already present at baseline. */
+    info?: { id?: string };
+    parts?: Array<Record<string, unknown>>;
+  }>;
 }
 
-function emitExportEvents(data: ExportShape, ctx: RunContext): void {
-  // Tool calls, in session order.
+function emitRunDelta(
+  data: ExportShape,
+  baseline: Baseline,
+  ctx: RunContext
+): void {
+  // Tool calls for messages that didn't exist at baseline — i.e. this run's,
+  // in session order. (A message with no id is treated as new.)
   for (const msg of data.messages ?? []) {
+    const id = msg.info?.id;
+    if (id && baseline.priorIds.has(id)) continue;
     for (const part of msg.parts ?? []) {
       if (part.type !== 'tool') continue;
       const tool = typeof part.tool === 'string' ? part.tool : 'tool';
@@ -330,21 +432,54 @@ function emitExportEvents(data: ExportShape, ctx: RunContext): void {
     }
   }
 
-  // Closing token usage from the session totals. opencode reports billed
-  // `cost` on the session info for paid providers (own key); free hosted /
-  // local auth reports 0, which we drop so the run shows tokens-only.
-  const t = parseTokens(data.info?.tokens);
-  if (t) {
-    const cost = data.info?.cost;
-    ctx.emit({
-      kind: 'token_usage',
-      phase: 'coding',
-      inputTokens: t.input,
-      outputTokens: t.output,
-      ...(t.cacheWrite > 0 ? { cacheCreationTokens: t.cacheWrite } : {}),
-      ...(t.cacheRead > 0 ? { cacheReadTokens: t.cacheRead } : {}),
-      ...(typeof cost === 'number' && cost > 0 ? { costUsd: cost } : {}),
-    });
+  // Usage as this run's delta over the baseline cumulative. opencode reports
+  // billed `cost` on the session info for paid providers (own key); free
+  // hosted / local auth reports 0, which we drop so the run shows tokens-only.
+  const total = readSessionUsage(data);
+  const base = baseline.priorUsage;
+  const input = Math.max(0, total.input - base.input);
+  const output = Math.max(0, total.output - base.output);
+  const cacheRead = Math.max(0, total.cacheRead - base.cacheRead);
+  const cacheWrite = Math.max(0, total.cacheWrite - base.cacheWrite);
+  const cost = Math.max(0, total.cost - base.cost);
+  if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) return;
+  ctx.emit({
+    kind: 'token_usage',
+    phase: 'coding',
+    inputTokens: input,
+    outputTokens: output,
+    ...(cacheWrite > 0 ? { cacheCreationTokens: cacheWrite } : {}),
+    ...(cacheRead > 0 ? { cacheReadTokens: cacheRead } : {}),
+    ...(cost > 0 ? { costUsd: cost } : {}),
+  });
+}
+
+function collectMessageIds(data: ExportShape): Set<string> {
+  const ids = new Set<string>();
+  for (const msg of data.messages ?? []) {
+    const id = msg.info?.id;
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+function readSessionUsage(data: ExportShape): SessionUsage {
+  const t = data.info?.tokens;
+  return {
+    cost: typeof data.info?.cost === 'number' ? data.info.cost : 0,
+    input: typeof t?.input === 'number' ? t.input : 0,
+    output: typeof t?.output === 'number' ? t.output : 0,
+    cacheRead: typeof t?.cache?.read === 'number' ? t.cache.read : 0,
+    cacheWrite: typeof t?.cache?.write === 'number' ? t.cache.write : 0,
+  };
+}
+
+/** Best-effort write of a raw artifact into the run's log dir. */
+function writeRunLog(ctx: RunContext, name: string, content: string): void {
+  try {
+    fs.writeFileSync(path.join(ctx.logDir, name), content);
+  } catch (e) {
+    ctx.logger.warn(`[opencode] could not write ${name}: ${(e as Error).message}`);
   }
 }
 
@@ -361,19 +496,3 @@ function toolArgsPreview(part: Record<string, unknown>): string | undefined {
   }
 }
 
-function parseTokens(raw: unknown): SessionTokens | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const t = raw as {
-    input?: number;
-    output?: number;
-    cache?: { read?: number; write?: number };
-  };
-  const input = typeof t.input === 'number' ? t.input : 0;
-  const output = typeof t.output === 'number' ? t.output : 0;
-  const cacheRead = typeof t.cache?.read === 'number' ? t.cache.read : 0;
-  const cacheWrite = typeof t.cache?.write === 'number' ? t.cache.write : 0;
-  if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) {
-    return null;
-  }
-  return { input, output, cacheRead, cacheWrite };
-}
