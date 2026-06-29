@@ -15,6 +15,7 @@ import {
 import { trpc } from '../lib/trpc';
 import { artifactUrl, READ_ONLY } from '../lib/static';
 import { Markdown } from './Markdown';
+import { AutoRunBadge } from './AutoRun';
 
 export interface CoderCardData extends PhaseTiming {
   id: string;
@@ -22,6 +23,8 @@ export interface CoderCardData extends PhaseTiming {
   status: NodeStatus;
   isFavorite: boolean;
   currentRunId: string | null;
+  autoRunTotal: number | null;
+  autoRunRemaining: number | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
   previewUrl: string | null;
@@ -121,6 +124,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         <div className="flex min-w-0 items-center gap-3">
           <PhaseTicks data={d} active={active} done={done} failed={failed} />
           <StatusBadge status={d.status} timing={d} />
+          <AutoRunBadge total={d.autoRunTotal} remaining={d.autoRunRemaining} />
         </div>
         <div className="flex items-center gap-2">
           {done && d.previewUrl ? <PreviewLink href={d.previewUrl} /> : null}

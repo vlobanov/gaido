@@ -1,6 +1,6 @@
 import { schema } from '@vadimlobanov/gaido-core';
 import type { NodeStatus } from '@vadimlobanov/gaido-core';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Db } from './db.js';
 
 const NON_TERMINAL: NodeStatus[] = ['running'];
@@ -11,6 +11,14 @@ const NON_TERMINAL: NodeStatus[] = ['running'];
  */
 export function recoverInterrupted(db: Db): { runs: number; nodes: number } {
   const now = Date.now();
+
+  // Nothing is auto-running on a cold start, so any leftover auto-run budget is
+  // stale — clear it process-wide. There's no mid-run resume; a crashed
+  // auto-run is over and the artist restarts it ("no resume, but start again").
+  db.update(schema.nodes)
+    .set({ autoRunTotal: null, autoRunRemaining: null, updatedAt: now })
+    .where(isNotNull(schema.nodes.autoRunRemaining))
+    .run();
 
   const stuckRuns = db
     .select()

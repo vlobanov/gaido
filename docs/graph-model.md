@@ -20,6 +20,17 @@ A `config` node records a coder/model switch made mid-graph (the `switchCoder` m
 
 `switchCoder` inserts the config node under the critique and one coder under it (wired per policy), then runs the coder. Branch/session resolution treats config nodes as transparent, same as critiques: `resolveAncestorCoder` walks past them. The spawned coder leaves `coder_name` null and inherits the config node's choice by lineage walk (see "Coder selection" below).
 
+### Auto-run (unattended iteration)
+
+"Run automatically N times" drives the `coder → critique → continue` cycle itself N times with no clicks. Two columns on `nodes` carry the budget: `auto_run_total` (the requested count, constant across the chain, for the "iteration k of N" display) and `auto_run_remaining` (cycles still to complete, including the in-flight one). The orchestrator advances it:
+
+- A coder that lands `done` while carrying a budget hands it to the critique child it just auto-spawned and runs the critic (`advanceAutoRunAfterCoder`).
+- A critique that lands `done` decrements and, if cycles remain, **continues** to a new coder via the same `createContinuationCoder` helper the manual Continue uses — so auto and manual iteration are identical (resumed session, references inherited, critique feedback as the instruction). When the budget is spent the campaign ends (`advanceAutoRunAfterCritique`).
+
+**Invariant: at most one node per chain holds a live budget — the running frontier.** The budget moves off each node as the frontier advances, and is cleared whenever a run ends anything but `done` (failure / cancel / interrupt, in `setRunStatus`), on a no-render message-only turn, and on startup recovery. So an auto-run is *not resumable* across a crash or interrupt — the artist just starts a new one, which is the intended contract.
+
+Entry points: the seed modal (`createRoot({ autoRun })`) and `autoRun({ nodeId, iterations })` from any leaf (a critique, or a coder — a done coder forwards to its critique child without re-coding; a non-`done` leaf coder re-runs as cycle 1). Interrupt via `interruptAuto({ nodeId, mode })`: `'after'` clears the budget so the in-flight step finishes then stops; `'now'` also aborts it. Both find the frontier from any node in the chain (`findAutoRunFrontier`). Auto-run needs a **model critic** — a `human` critic can't drive the loop, so the control is hidden and the mutations reject it.
+
 ## Coder selection
 
 The config holds a **named coder registry** (`coders: Record<string, Coder>`, or a single `coder` registered as `"default"` — `resolveCoderRegistry` in `packages/core`). A node's effective coder is the first non-null `coder_name` walking up its parent chain, else the registry default — the same inherit-down-lineage shape as `skeleton_name`. `coder_name` is set only where a coder is *chosen*:

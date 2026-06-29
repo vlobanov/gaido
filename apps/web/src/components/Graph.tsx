@@ -28,6 +28,8 @@ interface GaidoNode {
   currentRunId: string | null;
   coderName: string | null;
   sessionPolicy: SessionPolicy | null;
+  autoRunTotal: number | null;
+  autoRunRemaining: number | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
   previewUrl: string | null;
@@ -113,6 +115,8 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
           currentRunId: n.currentRunId,
           coderName: n.coderName,
           sessionPolicy: n.sessionPolicy,
+          autoRunTotal: n.autoRunTotal,
+          autoRunRemaining: n.autoRunRemaining,
           thumbnailArtifactId: n.thumbnailArtifactId,
           videoArtifactId: n.videoArtifactId,
           previewUrl: n.previewUrl,

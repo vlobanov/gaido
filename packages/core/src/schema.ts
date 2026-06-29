@@ -62,6 +62,19 @@ export const nodes = sqliteTable(
      * wired like Fork). NULL on coder/critique nodes.
      */
     sessionPolicy: text('session_policy').$type<SessionPolicy>(),
+    /**
+     * Auto-run budget. When the artist starts an auto-run ("Run automatically
+     * N times"), the coder → critique → continue cycle advances itself without
+     * manual clicks. `autoRunTotal` is the requested cycle count (constant
+     * across the chain, for "iteration k of N" display); `autoRunRemaining`
+     * counts the cycles still to complete, including the one in flight, and is
+     * decremented at each continue. Both NULL outside an auto-run. The
+     * orchestrator carries the budget forward onto each spawned node and clears
+     * it from the frontier when the run finishes the campaign, is interrupted,
+     * or fails — so at most one node per chain ever holds a live budget.
+     */
+    autoRunTotal: integer('auto_run_total'),
+    autoRunRemaining: integer('auto_run_remaining'),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),

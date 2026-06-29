@@ -22,7 +22,7 @@ import type {
   EventPayload,
 } from '@vadimlobanov/gaido-core';
 import { readCoderMessage } from './coder-message.js';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from './db.js';
 import type { EventBus } from './event-bus.js';
 import { mergeWithDefaults, type ResolvedConfig } from './config-loader.js';
@@ -36,6 +36,7 @@ import { snapshotClaudeSession } from './session-snapshot.js';
 import { materializeReferences } from './references.js';
 import { buildStaticPreviewUrl } from './static-preview-server.js';
 import { CODER_CARD_HEIGHT, nextChildY } from './layout.js';
+import { createContinuationCoder } from './continuation.js';
 
 interface OrchestratorDeps {
   db: Db;
@@ -673,6 +674,9 @@ export class Orchestrator {
     // (producedArtifact=true) renders normally; the message is just a note
     // alongside the video.
     if (message && !message.producedArtifact) {
+      // An auto-run can't continue from a turn that rendered nothing — there's
+      // no video for the critic to evaluate. End the campaign here.
+      this.clearAutoRun(nodeId);
       this.setRunStatus(runId, nodeId, 'done', {});
       return;
     }
@@ -684,6 +688,7 @@ export class Orchestrator {
 
     this.setRunStatus(runId, nodeId, 'done', {});
     this.autoSpawnCritiqueChild(node);
+    this.advanceAutoRunAfterCoder(nodeId);
   }
 
   /**
@@ -801,6 +806,7 @@ export class Orchestrator {
       await this.renderNode(runId, nodeId, node, cfg, signal);
       this.setRunStatus(runId, nodeId, 'done', {});
       this.autoSpawnCritiqueChild(node);
+      this.advanceAutoRunAfterCoder(nodeId);
     } catch (err) {
       if (signal.aborted) {
         this.setRunStatus(runId, nodeId, 'cancelled', {});
@@ -892,6 +898,7 @@ export class Orchestrator {
     });
 
     this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
+    this.advanceAutoRunAfterCritique(nodeId);
   }
 
   private resolveCanvasSlug(canvasId: string): string {
@@ -1083,6 +1090,90 @@ export class Orchestrator {
       .run();
   }
 
+  /** Drop any auto-run budget from a node. No-op when none is set. */
+  private clearAutoRun(nodeId: string): void {
+    this.db
+      .update(schema.nodes)
+      .set({ autoRunTotal: null, autoRunRemaining: null, updatedAt: Date.now() })
+      .where(eq(schema.nodes.id, nodeId))
+      .run();
+  }
+
+  /**
+   * Auto-run advance, coder → critique. When a coder lands `done` while
+   * carrying an auto-run budget, hand that budget to the critique child the
+   * coder just auto-spawned and run the critic — no manual "Run critic" click.
+   * The budget moves off the coder (frontier advances), so at most one node in
+   * the chain holds it. No-op for an ordinary manual run (no budget).
+   */
+  private advanceAutoRunAfterCoder(coderNodeId: string): void {
+    const coder = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, coderNodeId))
+      .get();
+    if (!coder || coder.autoRunRemaining == null) return;
+
+    // The frontier leaves the coder regardless of what happens next.
+    this.clearAutoRun(coderNodeId);
+
+    const critique = this.db
+      .select()
+      .from(schema.nodes)
+      .where(
+        and(
+          eq(schema.nodes.parentId, coderNodeId),
+          eq(schema.nodes.kind, 'critique')
+        )
+      )
+      .get();
+    // No critique to drive the loop (shouldn't happen after autoSpawn, but a
+    // human-critic config or a vanished row would land here) — stop quietly.
+    if (!critique) return;
+
+    this.db
+      .update(schema.nodes)
+      .set({
+        autoRunTotal: coder.autoRunTotal,
+        autoRunRemaining: coder.autoRunRemaining,
+        updatedAt: Date.now(),
+      })
+      .where(eq(schema.nodes.id, critique.id))
+      .run();
+    this.startRun(critique.id);
+  }
+
+  /**
+   * Auto-run advance, critique → next coder. When a critique lands `done`
+   * while carrying an auto-run budget, the cycle is complete: decrement and, if
+   * cycles remain, continue to a new coder on the same session (identical to
+   * the manual Continue, via the shared helper). When the budget is spent the
+   * campaign ends. No-op for an ordinary manual critique (no budget).
+   */
+  private advanceAutoRunAfterCritique(critiqueNodeId: string): void {
+    const critique = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, critiqueNodeId))
+      .get();
+    if (!critique || critique.autoRunRemaining == null) return;
+
+    const total = critique.autoRunTotal ?? critique.autoRunRemaining;
+    const remainingAfter = critique.autoRunRemaining - 1;
+    // The frontier leaves the critique whether we continue or stop.
+    this.clearAutoRun(critiqueNodeId);
+    if (remainingAfter <= 0) return; // campaign complete
+
+    const result = createContinuationCoder(
+      { db: this.db, paths: this.paths, workspace: this.workspace },
+      critiqueNodeId,
+      { total, remaining: remainingAfter }
+    );
+    // No feedback to carry / broken chain — end the auto-run rather than throw.
+    if (!result.ok) return;
+    this.startRun(result.coderId);
+  }
+
   /** The semaphore gating a phase: LLM phases share `agentSlots`. */
   private slotsFor(phase: RunPhase): Semaphore {
     return phase === 'rendering' ? this.renderSlots : this.agentSlots;
@@ -1205,10 +1296,22 @@ export class Orchestrator {
       .run();
 
     // Mirror node. Keep currentRunId pointing at the last run regardless of
-    // outcome — the UI uses it to look up the latest result.
+    // outcome — the UI uses it to look up the latest result. A run that ends
+    // anything but `done` also kills any auto-run budget on the node: the loop
+    // can't advance from a failed/cancelled/interrupted step, so clearing it
+    // halts the campaign and drops the "iteration k/N" badge. `done` keeps the
+    // budget — the advance step reads it immediately after.
+    const nodeUpdate: Partial<typeof schema.nodes.$inferInsert> = {
+      status,
+      updatedAt: now,
+    };
+    if (status === 'failed' || status === 'cancelled' || status === 'interrupted') {
+      nodeUpdate.autoRunTotal = null;
+      nodeUpdate.autoRunRemaining = null;
+    }
     this.db
       .update(schema.nodes)
-      .set({ status, updatedAt: now })
+      .set(nodeUpdate)
       .where(eq(schema.nodes.id, nodeId))
       .run();
 

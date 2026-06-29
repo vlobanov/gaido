@@ -20,6 +20,7 @@ import {
   type DraftReference,
 } from './ReferenceAttacher';
 import { ManualCritiqueModal, critiqueAuthorLabel } from './ManualCritiqueModal';
+import { AutoRunPanel } from './AutoRun';
 
 interface SidebarProps {
   nodeId: string;
@@ -169,6 +170,8 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
             }
           />
         </div>
+
+        <AutoRunPanel nodeId={nodeId} canStart={canRetry} />
 
         {hasThread ? (
           <ConversationThread
@@ -511,6 +514,8 @@ function CritiqueSidebar({ nodeId }: { nodeId: string }) {
             size="md"
           />
         </div>
+
+        <AutoRunPanel nodeId={nodeId} canStart={!active} />
 
         <Section label="Of">
           {node.instruction ? (

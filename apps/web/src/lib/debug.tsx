@@ -25,7 +25,7 @@ export interface GaidoDebug {
   trigger: {
     createRoot(
       instruction: string,
-      opts?: { skeletonName?: string; coderName?: string }
+      opts?: { skeletonName?: string; coderName?: string; autoRun?: number }
     ): Promise<unknown>;
     createCanvas(name?: string): Promise<unknown>;
     /**
@@ -66,6 +66,16 @@ export interface GaidoDebug {
       }
     ): Promise<unknown>;
     cancel(nodeId: string): Promise<unknown>;
+    /**
+     * Start an auto-run from a leaf node — the code → critique → continue cycle
+     * advances itself `iterations` times. Returns `{ nodeId, run }` where
+     * `nodeId` is the node the loop actually started on (a done coder forwards
+     * to its critique child).
+     */
+    autoRun(nodeId: string, iterations: number): Promise<unknown>;
+    /** Interrupt the auto-run reachable from `nodeId`; `'now'` aborts the
+     * in-flight step, `'after'` lets it finish then stops. */
+    interruptAuto(nodeId: string, mode: 'now' | 'after'): Promise<unknown>;
     delete(nodeId: string): Promise<unknown>;
   };
 
@@ -138,6 +148,8 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
   const rerunRender = trpc.nodes.rerunRender.useMutation();
   const switchCoder = trpc.nodes.switchCoder.useMutation();
   const cancel = trpc.nodes.cancel.useMutation();
+  const autoRun = trpc.nodes.autoRun.useMutation();
+  const interruptAuto = trpc.nodes.interruptAuto.useMutation();
   const deleteNode = trpc.nodes.delete.useMutation();
   const createCanvas = trpc.canvases.create.useMutation();
 
@@ -209,13 +221,14 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
       trigger: {
         async createRoot(
           instruction: string,
-          opts?: { skeletonName?: string; coderName?: string }
+          opts?: { skeletonName?: string; coderName?: string; autoRun?: number }
         ) {
           const result = await createRoot.mutateAsync({
             instruction,
             canvasId: canvasIdRef.current,
             ...(opts?.skeletonName ? { skeletonName: opts.skeletonName } : {}),
             ...(opts?.coderName ? { coderName: opts.coderName } : {}),
+            ...(opts?.autoRun ? { autoRun: opts.autoRun } : {}),
           });
           await utils.nodes.list.invalidate();
           return result;
@@ -300,6 +313,16 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
           await utils.nodes.list.invalidate();
           return result;
         },
+        async autoRun(nodeId: string, iterations: number) {
+          const result = await autoRun.mutateAsync({ nodeId, iterations });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
+        async interruptAuto(nodeId: string, mode: 'now' | 'after') {
+          const result = await interruptAuto.mutateAsync({ nodeId, mode });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
         async delete(nodeId: string) {
           const result = await deleteNode.mutateAsync({ nodeId });
           await utils.nodes.list.invalidate();
@@ -336,7 +359,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         delete window.__gaido;
       }
     };
-  }, [utils, createRoot, createChild, retry, rerunRender, switchCoder, cancel, deleteNode, createCanvas, setLocation]);
+  }, [utils, createRoot, createChild, retry, rerunRender, switchCoder, cancel, autoRun, interruptAuto, deleteNode, createCanvas, setLocation]);
 
   return null;
 }

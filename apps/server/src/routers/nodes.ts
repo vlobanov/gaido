@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { schema, nodeId as newNodeId, critiqueFeedback } from '@vadimlobanov/gaido-core';
+import { schema, nodeId as newNodeId } from '@vadimlobanov/gaido-core';
 import type { Critique } from '@vadimlobanov/gaido-core';
 import type { Node } from '@vadimlobanov/gaido-core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
@@ -22,8 +22,44 @@ import {
   referenceInputSchema,
   type ReferenceDeps,
 } from '../references.js';
+import { createContinuationCoder } from '../continuation.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
+
+// Auto-run can spawn at most this many coder cycles from one start — a
+// runaway guard, not a product limit; the UI offers a smaller range.
+const AUTO_RUN_MAX = 50;
+
+/**
+ * The live auto-run frontier reachable from `rootId` (itself or a descendant):
+ * the single node carrying a non-null `autoRunRemaining`. The orchestrator's
+ * invariant keeps at most one per chain, so the first hit is authoritative.
+ * Lets the artist interrupt from any node in the chain, not just the exact
+ * node the loop has currently advanced to.
+ */
+function findAutoRunFrontier(db: Db, rootId: string): Node | null {
+  const queue: string[] = [rootId];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, id))
+      .get();
+    if (!node) continue;
+    if (node.autoRunRemaining != null) return node;
+    const kids = db
+      .select({ id: schema.nodes.id })
+      .from(schema.nodes)
+      .where(eq(schema.nodes.parentId, id))
+      .all();
+    for (const k of kids) queue.push(k.id);
+  }
+  return null;
+}
 
 /**
  * Best-effort attach of references provided inline with a node-creating
@@ -139,6 +175,8 @@ export const nodesRouter = router({
           sessionId: schema.nodes.sessionId,
           coderName: schema.nodes.coderName,
           sessionPolicy: schema.nodes.sessionPolicy,
+          autoRunTotal: schema.nodes.autoRunTotal,
+          autoRunRemaining: schema.nodes.autoRunRemaining,
           isFavorite: schema.nodes.isFavorite,
           createdAt: schema.nodes.createdAt,
           updatedAt: schema.nodes.updatedAt,
@@ -244,6 +282,10 @@ export const nodesRouter = router({
         skeletonName: z.string().optional(),
         coderName: z.string().optional(),
         references: z.array(referenceInputSchema).optional(),
+        // Seed an auto-run: the root then code→critique→continues itself this
+        // many coder cycles (counting the root). Omitted/1 → a single run with
+        // a manual critique, the default. Needs a model critic to drive it.
+        autoRun: z.number().int().min(1).max(AUTO_RUN_MAX).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -251,6 +293,17 @@ export const nodesRouter = router({
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: `unknown coder '${input.coderName}'`,
+        });
+      }
+      if (
+        input.autoRun != null &&
+        input.autoRun > 1 &&
+        ctx.config.critic.kind === 'human'
+      ) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'auto-run needs a model critic to drive the loop — this project uses a human critic',
         });
       }
       let canvasId = input.canvasId;
@@ -301,6 +354,9 @@ export const nodesRouter = router({
           status: 'idle',
           skeletonName: input.skeletonName ?? null,
           coderName: input.coderName ?? null,
+          ...(input.autoRun && input.autoRun > 1
+            ? { autoRunTotal: input.autoRun, autoRunRemaining: input.autoRun }
+            : {}),
           isFavorite: false,
           createdAt: now,
           updatedAt: now,
@@ -642,128 +698,177 @@ export const nodesRouter = router({
 
   /**
    * Continue iterating: spawn a new coder child under the critique on the
-   * SAME branch as the parent coder. The new node sets `branchAnchorId` to
-   * the parent's anchor (or to the parent itself if the parent is the
-   * branch root), so the orchestrator reuses the anchor's worktree and
-   * Claude Code session. The instruction is just the artist's notes — the
-   * session already has the prior conversation in scope, so no composed
-   * prompt is needed.
+   * SAME branch as the parent coder (resumed session + reused worktree) with
+   * the critique feedback as its instruction, then run it. The node creation
+   * lives in `createContinuationCoder`, shared with the orchestrator's auto-run
+   * advance so manual and automatic continuation behave identically.
    */
   continue: publicProcedure
     .input(z.object({ critiqueNodeId: z.string() }))
     .mutation(({ ctx, input }) => {
-      const critique = ctx.db
-        .select()
-        .from(schema.nodes)
-        .where(eq(schema.nodes.id, input.critiqueNodeId))
-        .get();
-      if (!critique) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: `node ${input.critiqueNodeId}`,
-        });
-      }
-      if (critique.kind !== 'critique') {
+      const result = createContinuationCoder(ctx, input.critiqueNodeId);
+      if (!result.ok) {
+        if (result.reason === 'missing') {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: `node ${input.critiqueNodeId}`,
+          });
+        }
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'continue requires a critique node',
+          message:
+            result.reason === 'not-critique'
+              ? 'continue requires a critique node'
+              : result.reason === 'no-parent'
+                ? 'critique node has no parent coder'
+                : 'save notes before continuing',
         });
       }
-      if (!critique.parentId) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'critique node has no parent coder',
-        });
-      }
-      if (!critique.currentRunId) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'save notes before continuing',
-        });
-      }
-      const critiqueRun = ctx.db
-        .select()
-        .from(schema.runs)
-        .where(eq(schema.runs.id, critique.currentRunId))
-        .get();
-      // The next coder resumes the prior session but never saw the critique
-      // (the critic is a separate agent), so the full feedback — overall plus
-      // any suggestions — has to ride the instruction. `critiqueFeedback`
-      // composes it; an edited critique already folded its suggestions into
-      // `overall`, so this stays a single clean block either way.
-      const notes = critiqueRun?.critique
-        ? critiqueFeedback(critiqueRun.critique).trim()
-        : undefined;
-      if (!notes) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'save notes before continuing',
-        });
-      }
-      const parentCoder = ctx.db
-        .select()
-        .from(schema.nodes)
-        .where(eq(schema.nodes.id, critique.parentId))
-        .get();
-      if (!parentCoder) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: `parent coder ${critique.parentId}`,
-        });
-      }
-      const anchorId = parentCoder.branchAnchorId ?? parentCoder.id;
-
-      const id = newNodeId();
-      const now = Date.now();
-      const y = nextChildY(
-        critique.positionY,
-        critiqueCardHeight(critiqueRun?.critique)
-      );
-      // Spread alongside any prior siblings (forks or other continues) so a
-      // second iteration from one critique doesn't land on top of the first.
-      const existingChildren = ctx.db
-        .select({ positionX: schema.nodes.positionX })
-        .from(schema.nodes)
-        .where(
-          and(
-            eq(schema.nodes.parentId, critique.id),
-            eq(schema.nodes.kind, 'coder')
-          )
-        )
-        .all();
-      const rightmost = existingChildren.length
-        ? Math.max(...existingChildren.map((c) => c.positionX))
-        : critique.positionX - SIBLING_X_STEP;
-
-      ctx.db
-        .insert(schema.nodes)
-        .values({
-          id,
-          parentId: critique.id,
-          canvasId: parentCoder.canvasId,
-          kind: 'coder',
-          positionX: rightmost + SIBLING_X_STEP,
-          positionY: y,
-          instruction: notes,
-          branchAnchorId: anchorId,
-          status: 'idle',
-          isFavorite: false,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-
-      // Continuing inherits the parent coder's references so iteration keeps
-      // the same context.
-      inheritReferences(ctx, parentCoder.id, id);
-
-      const run = ctx.orchestrator.startRun(id);
+      const run = ctx.orchestrator.startRun(result.coderId);
       const node = ctx.db
         .select()
         .from(schema.nodes)
-        .where(eq(schema.nodes.id, id))
+        .where(eq(schema.nodes.id, result.coderId))
         .get()!;
       return { node, run };
+    }),
+
+  /**
+   * Start an auto-run from an existing leaf node: the code → critique →
+   * continue cycle then advances itself `iterations` times (counting the
+   * current coder) with no further clicks. Resolves where to begin:
+   *
+   * - **critique** → run its critic; the parent coder is cycle 1.
+   * - **done coder** → run its critique child (no re-code); this coder is cycle 1.
+   * - **failed/idle/interrupted coder leaf** → re-run this coder as cycle 1.
+   *
+   * The budget is stamped on that start node; the orchestrator carries it
+   * forward. Needs a model critic (the loop can't drive a human one). Returns
+   * the node the loop actually started on so the UI can follow it.
+   */
+  autoRun: publicProcedure
+    .input(
+      z.object({
+        nodeId: z.string(),
+        iterations: z.number().int().min(1).max(AUTO_RUN_MAX),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get();
+      if (!node) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.nodeId}` });
+      }
+      if (ctx.config.critic.kind === 'human') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'auto-run needs a model critic to drive the loop — this project uses a human critic',
+        });
+      }
+      if (node.kind === 'config') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'cannot auto-run a config node',
+        });
+      }
+      if (node.status === 'running') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'this node is already running',
+        });
+      }
+
+      const setBudget = (id: string) =>
+        ctx.db
+          .update(schema.nodes)
+          .set({
+            autoRunTotal: input.iterations,
+            autoRunRemaining: input.iterations,
+            updatedAt: Date.now(),
+          })
+          .where(eq(schema.nodes.id, id))
+          .run();
+
+      let startId: string;
+      if (node.kind === 'critique') {
+        // Run (or re-run) the critic; its parent coder is cycle 1.
+        startId = node.id;
+        setBudget(startId);
+      } else if (node.status === 'done') {
+        // Forward from the auto-spawned critique child — don't re-code work the
+        // artist already accepted. The done coder is cycle 1.
+        const critique = ctx.db
+          .select()
+          .from(schema.nodes)
+          .where(
+            and(
+              eq(schema.nodes.parentId, node.id),
+              eq(schema.nodes.kind, 'critique')
+            )
+          )
+          .get();
+        if (!critique) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'this run produced no critique to iterate from — retry the coder instead',
+          });
+        }
+        if (critique.status === 'running') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'the critique is already running',
+          });
+        }
+        startId = critique.id;
+        setBudget(startId);
+      } else {
+        // A leaf coder that hasn't landed a render (failed/cancelled/
+        // interrupted/idle): re-run it as cycle 1. Same leaf rule as Retry.
+        if (!isLeafOfBranch(ctx.db, node)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'this coder has continued descendants — auto-run from a later critique instead',
+          });
+        }
+        startId = node.id;
+        setBudget(startId);
+      }
+
+      const run = ctx.orchestrator.startRun(startId);
+      return { nodeId: startId, run };
+    }),
+
+  /**
+   * Interrupt the auto-run reachable from `nodeId` (itself or a descendant).
+   * Two flavours, both clearing the budget so the loop won't advance when the
+   * current step lands:
+   *
+   * - `'after'` → soft: let the in-flight coder/critic finish its step, then
+   *   stop. No wasted work; the node lands `done`.
+   * - `'now'`   → hard: also abort the in-flight run immediately (lands
+   *   `cancelled`).
+   *
+   * Either way there's no "resume the remaining N" — the artist starts a fresh
+   * auto-run from wherever it stopped.
+   */
+  interruptAuto: publicProcedure
+    .input(z.object({ nodeId: z.string(), mode: z.enum(['now', 'after']) }))
+    .mutation(({ ctx, input }) => {
+      const frontier = findAutoRunFrontier(ctx.db, input.nodeId);
+      if (!frontier) return { ok: true as const, stopped: null };
+      ctx.db
+        .update(schema.nodes)
+        .set({ autoRunTotal: null, autoRunRemaining: null, updatedAt: Date.now() })
+        .where(eq(schema.nodes.id, frontier.id))
+        .run();
+      if (input.mode === 'now') ctx.orchestrator.cancel(frontier.id);
+      return { ok: true as const, stopped: frontier.id };
     }),
 
   /**

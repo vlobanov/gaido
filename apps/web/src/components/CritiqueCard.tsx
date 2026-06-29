@@ -5,6 +5,7 @@ import { StatusBadge, isActiveStatus, type PhaseTiming } from './StatusBadge';
 import { trpc } from '../lib/trpc';
 import { READ_ONLY } from '../lib/static';
 import { ManualCritiqueModal, critiqueAuthorLabel } from './ManualCritiqueModal';
+import { AutoRunBadge } from './AutoRun';
 
 export interface CritiqueCardData extends PhaseTiming {
   id: string;
@@ -12,6 +13,8 @@ export interface CritiqueCardData extends PhaseTiming {
   status: NodeStatus;
   isFavorite: boolean;
   currentRunId: string | null;
+  autoRunTotal: number | null;
+  autoRunRemaining: number | null;
   selected: boolean;
   [key: string]: unknown;
 }
@@ -74,7 +77,10 @@ function CritiqueCardComponent({ data, selected }: NodeProps) {
         <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
           Critique
         </span>
-        <StatusBadge status={d.status} timing={d} />
+        <div className="flex items-center gap-2">
+          <AutoRunBadge total={d.autoRunTotal} remaining={d.autoRunRemaining} />
+          <StatusBadge status={d.status} timing={d} />
+        </div>
       </div>
 
       <div className="min-h-[5rem] px-4 py-3">

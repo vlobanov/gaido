@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { trpc } from '../lib/trpc';
 import { READ_ONLY } from '../lib/static';
 import { readPref, writePref } from '../lib/prefs';
+import { useUiStore } from '../store';
 import {
   ReferenceDraftField,
   toReferenceInput,
@@ -65,12 +66,20 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
   const [skeletonName, setSkeletonName] = useState<string | null>(() => readPref(SEED_SKELETON_PREF));
   const [coderName, setCoderName] = useState<string | null>(() => readPref(SEED_CODER_PREF));
   const [references, setReferences] = useState<DraftReference[]>([]);
+  const [autoRunOn, setAutoRunOn] = useState(false);
+  const [autoRunCount, setAutoRunCount] = useState(4);
+  const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
   const utils = trpc.useUtils();
   const skeletons = trpc.skeletons.list.useQuery();
   const coders = trpc.coders.list.useQuery();
+  const systemQuery = trpc.system.info.useQuery();
+  const isHumanCritic = systemQuery.data?.criticKind === 'human';
   const createRoot = trpc.nodes.createRoot.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       await utils.nodes.list.invalidate();
+      // Select the new root so the artist watches it run — and, for an
+      // auto-run, sees the iteration counter + interrupt controls in-sidebar.
+      setSelectedNodeId(data.node.id);
       onClose();
     },
   });
@@ -104,6 +113,7 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
       ...(resolvedSkeleton ? { skeletonName: resolvedSkeleton } : {}),
       ...(resolvedCoder ? { coderName: resolvedCoder } : {}),
       ...(references.length ? { references: references.map(toReferenceInput) } : {}),
+      ...(autoRunOn ? { autoRun: autoRunCount } : {}),
     });
   };
 
@@ -205,6 +215,41 @@ export function CreateRootModal({ canvas, onClose }: CreateRootModalProps) {
           </span>
           <ReferenceDraftField value={references} onChange={setReferences} />
         </div>
+        {!isHumanCritic ? (
+          <div className="mt-4">
+            <label className="flex items-center gap-2 font-mono text-xs uppercase tracking-caps text-ink-muted">
+              <input
+                type="checkbox"
+                checked={autoRunOn}
+                onChange={(e) => setAutoRunOn(e.target.checked)}
+                data-testid="create-root-auto-toggle"
+                className="accent-sanguine"
+              />
+              Run automatically
+            </label>
+            {autoRunOn ? (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={2}
+                  max={50}
+                  value={autoRunCount}
+                  onChange={(e) => {
+                    const v = Math.round(Number(e.target.value));
+                    setAutoRunCount(
+                      Number.isFinite(v) ? Math.min(50, Math.max(2, v)) : 2
+                    );
+                  }}
+                  data-testid="create-root-auto-count"
+                  className="w-14 border border-hairline bg-paper-deep px-2 py-1.5 font-mono text-sm text-ink outline-none focus:border-hairline-deep"
+                />
+                <span className="font-mono text-[10px] uppercase tracking-caps text-ink-faint">
+                  iterations · code → critique → continue, unattended
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {createRoot.error ? (
           <p className="mt-3 font-mono text-xs uppercase tracking-caps text-sanguine">
             {createRoot.error.message}
