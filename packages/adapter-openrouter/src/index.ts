@@ -30,9 +30,29 @@ export interface GeminiCriticOpts {
   appTitle?: string;
   /** Request timeout in ms. Default 180_000 (3 min). */
   timeoutMs?: number;
+  /**
+   * Detail Gemini ingests the video at. Gemini samples video at ~1 fps; this
+   * sets the per-frame resolution. Default 'high'. Both 'low' and 'medium' bill
+   * video at ~64 tokens/frame — too coarse for the model to resolve PBR,
+   * specular, texture, or fine geometry, so it falls back to generic
+   * "flat / low-poly / untextured" critiques that contradict the actual render.
+   * 'high' is ~256 tokens/frame (≈4× the visual detail). Pass null to omit the
+   * param and take the provider default (currently low).
+   */
+  mediaResolution?: 'low' | 'medium' | 'high' | null;
 }
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Gemini's media-resolution enum. The OpenRouter param is the raw Gemini value
+// (top-level `media_resolution`), not a friendly 'low'/'high' string — those
+// 400. Verified against google-vertex: LOW and MEDIUM both bill a 5s 1024²
+// clip at 320 video tokens; HIGH bills 1280 (4× per-frame detail).
+const MEDIA_RESOLUTION_ENUM: Record<'low' | 'medium' | 'high', string> = {
+  low: 'MEDIA_RESOLUTION_LOW',
+  medium: 'MEDIA_RESOLUTION_MEDIUM',
+  high: 'MEDIA_RESOLUTION_HIGH',
+};
 
 export function geminiCritic(opts: GeminiCriticOpts = {}): Critic {
   const cfg: ResolvedCfg = {
@@ -46,6 +66,8 @@ export function geminiCritic(opts: GeminiCriticOpts = {}): Critic {
     httpReferer: opts.httpReferer ?? 'https://github.com/anthropics/gaido',
     appTitle: opts.appTitle ?? 'Gaido',
     timeoutMs: opts.timeoutMs ?? 180_000,
+    mediaResolution:
+      opts.mediaResolution === null ? null : opts.mediaResolution ?? 'high',
   };
   return {
     kind: 'gemini-openrouter',
@@ -62,6 +84,7 @@ interface ResolvedCfg {
   httpReferer: string;
   appTitle: string;
   timeoutMs: number;
+  mediaResolution: 'low' | 'medium' | 'high' | null;
 }
 
 async function critiqueWithGemini(
@@ -99,6 +122,7 @@ async function critiqueWithGemini(
       promptLen: input.prompt.length,
       videoBytes: videoBytes.length,
       videoMime: mime,
+      mediaResolution: cfg.mediaResolution,
     })
   );
 
@@ -115,6 +139,9 @@ async function critiqueWithGemini(
     ],
     response_format: { type: 'json_object' },
   };
+  if (cfg.mediaResolution) {
+    body.media_resolution = MEDIA_RESOLUTION_ENUM[cfg.mediaResolution];
+  }
   if (cfg.providerOrder && cfg.providerOrder.length > 0) {
     body.provider = {
       order: cfg.providerOrder,
