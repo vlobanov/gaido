@@ -8,6 +8,7 @@ import {
   toReferenceInput,
   type DraftReference,
 } from './ReferenceAttacher';
+import { BatchModal } from './BatchModal';
 
 // Remembered across sessions so the next seed defaults to the last choice.
 const SEED_SKELETON_PREF = 'seed.skeleton';
@@ -25,6 +26,7 @@ interface EmptyStateProps {
 
 export function EmptyState({ canvas }: EmptyStateProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   return (
     <div className="flex h-full w-full items-center justify-center bg-paper">
       <div className="flex max-w-md flex-col items-start gap-6 px-8">
@@ -40,18 +42,29 @@ export function EmptyState({ canvas }: EmptyStateProps) {
           next. Branch from there as long as the work is interesting.
         </p>
         {!READ_ONLY && (
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            data-testid="empty-create-root"
-            className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint"
-          >
-            Seed root node
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              data-testid="empty-create-root"
+              className="border border-sanguine bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-sanguine transition-colors hover:bg-sanguine-tint"
+            >
+              Seed root node
+            </button>
+            <button
+              type="button"
+              onClick={() => setBatchOpen(true)}
+              data-testid="empty-batch"
+              className="border border-hairline bg-paper px-5 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:border-hairline-deep hover:bg-paper-deep hover:text-ink"
+            >
+              Batch run
+            </button>
+          </div>
         )}
       </div>
 
       {modalOpen ? <CreateRootModal canvas={canvas} onClose={() => setModalOpen(false)} /> : null}
+      {batchOpen ? <BatchModal canvas={canvas} onClose={() => setBatchOpen(false)} /> : null}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
   layoutCanvasNodes,
   nextChildY,
   CONFIG_CARD_HEIGHT,
+  INSTRUCTION_CARD_HEIGHT,
   SIBLING_X_STEP,
 } from '../layout.js';
 import {
@@ -79,6 +80,100 @@ async function bindInlineReferences(
     // eslint-disable-next-line no-console
     console.warn(`[references] inline bind failed for ${nodeId}:`, err);
   }
+}
+
+/** The provided canvas id, or the default canvas's id. Throws if neither exists. */
+function resolveCanvasId(db: Db, canvasId: string | undefined): string {
+  if (canvasId) return canvasId;
+  const defaultCanvas = db
+    .select({ id: schema.canvases.id })
+    .from(schema.canvases)
+    .where(eq(schema.canvases.slug, 'default'))
+    .get();
+  if (!defaultCanvas) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'default canvas missing',
+    });
+  }
+  return defaultCanvas.id;
+}
+
+/**
+ * Insert one comparison branch under an `instruction` root: a settled `config`
+ * marker recording the coder+skeleton choice, then the `coder` beneath it.
+ * Mirrors switchCoder's config→coder pair, but for a fresh root branch:
+ * `sessionPolicy` is always `reset` (no prior session to retain), the config
+ * carries `skeletonName` for display, and the coder carries `skeletonName` so
+ * the orchestrator seeds its worktree from `seed/<skeleton>` (a fresh branch
+ * whose anchor is itself). The coder's `instruction` is a copy of the prompt —
+ * the orchestrator reads `node.instruction`, the same denormalization
+ * `createContinuationCoder` does with critique feedback. `coderName` is left
+ * null on the coder so it inherits the config marker's choice by lineage walk.
+ * Returns the new node ids; the caller owns references + `startRun`.
+ */
+function insertRootBranch(
+  db: Db,
+  args: {
+    prompt: Pick<Node, 'id' | 'canvasId'>;
+    instruction: string;
+    /** Explicit coder pick, or null to inherit the registry default dynamically. */
+    coderName: string | null;
+    skeletonName: string | null;
+    x: number;
+    y: number;
+    autoRun?: number | undefined;
+    now: number;
+  }
+): { configId: string; coderId: string } {
+  const { prompt, instruction, coderName, skeletonName, x, y, autoRun, now } =
+    args;
+  const skeletonLabel = skeletonName ?? 'default';
+
+  const configId = newNodeId();
+  db.insert(schema.nodes)
+    .values({
+      id: configId,
+      parentId: prompt.id,
+      canvasId: prompt.canvasId,
+      kind: 'config',
+      positionX: x,
+      positionY: y,
+      instruction: `${coderName ?? 'default'} · ${skeletonLabel}`,
+      coderName,
+      skeletonName,
+      sessionPolicy: 'reset',
+      status: 'done',
+      isFavorite: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  const coderId = newNodeId();
+  db.insert(schema.nodes)
+    .values({
+      id: coderId,
+      parentId: configId,
+      canvasId: prompt.canvasId,
+      kind: 'coder',
+      positionX: x,
+      positionY: nextChildY(y, CONFIG_CARD_HEIGHT),
+      instruction,
+      // Own branch off seed/<skeleton>; leaves coderName null to inherit the
+      // config marker's choice by lineage walk, exactly like switchCoder.
+      skeletonName,
+      ...(autoRun && autoRun > 1
+        ? { autoRunTotal: autoRun, autoRunRemaining: autoRun }
+        : {}),
+      status: 'idle',
+      isFavorite: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  return { configId, coderId };
 }
 
 /**
@@ -193,6 +288,7 @@ export const nodesRouter = router({
           currentRunId: schema.nodes.currentRunId,
           sessionId: schema.nodes.sessionId,
           coderName: schema.nodes.coderName,
+          skeletonName: schema.nodes.skeletonName,
           sessionPolicy: schema.nodes.sessionPolicy,
           autoRunTotal: schema.nodes.autoRunTotal,
           autoRunRemaining: schema.nodes.autoRunRemaining,
@@ -247,7 +343,10 @@ export const nodesRouter = router({
       // `retryable` lets the UI grey out the Retry button on coder nodes
       // that have continued descendants — cheaper than another round-trip
       // and keeps the rule colocated with the rejection in `retry`.
-      const retryable = node.kind === 'coder' ? isLeafOfBranch(ctx.db, node) : true;
+      const retryable =
+        node.kind === 'coder'
+          ? isLeafOfBranch(ctx.db, node)
+          : node.kind === 'critique';
       // `hasSession` reports whether this node's branch has a live coder
       // session. The session lives on the branch anchor, so we resolve the
       // relevant coder (the node itself, or — for critique/config nodes — the
@@ -334,31 +433,15 @@ export const nodesRouter = router({
             'auto-run needs a model critic to drive the loop — this project uses a human critic',
         });
       }
-      let canvasId = input.canvasId;
-      if (!canvasId) {
-        const defaultCanvas = ctx.db
-          .select({ id: schema.canvases.id })
-          .from(schema.canvases)
-          .where(eq(schema.canvases.slug, 'default'))
-          .get();
-        if (!defaultCanvas) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'default canvas missing',
-          });
-        }
-        canvasId = defaultCanvas.id;
-      }
-      const id = newNodeId();
+      const canvasId = resolveCanvasId(ctx.db, input.canvasId);
       const now = Date.now();
-      // Drop the new root on its own lane to the right of everything already
-      // on the canvas — the same left-to-right root stacking layoutCanvasNodes()
-      // produces, but computed incrementally so seeding a root never disturbs
-      // the canvas's existing nodes. `positionX` is each card's left edge and
-      // every card is one column (SIBLING_X_STEP) wide, so `maxX + 2·step`
-      // clears the rightmost card and leaves one empty gap column between
-      // subtrees. Empty canvas → origin. Without this the root defaulted to
-      // x=0 and stacked behind the leftmost existing root.
+      // Drop the new instruction root on its own lane to the right of everything
+      // already on the canvas — the same left-to-right root stacking
+      // layoutCanvasNodes() produces, but computed incrementally so seeding a
+      // root never disturbs the canvas's existing nodes. `positionX` is each
+      // card's left edge and every card is one column (SIBLING_X_STEP) wide, so
+      // `maxX + 2·step` clears the rightmost card and leaves one empty gap column
+      // between subtrees. Empty canvas → origin.
       const existing = ctx.db
         .select({ positionX: schema.nodes.positionX })
         .from(schema.nodes)
@@ -369,35 +452,148 @@ export const nodesRouter = router({
         (existing.length
           ? Math.max(...existing.map((n) => n.positionX)) + 2 * SIBLING_X_STEP
           : 0);
+      const positionY = input.position?.y ?? 0;
+
+      // The root is a settled `instruction` marker holding the prompt; the coder
+      // that actually runs hangs beneath a `config` marker recording the
+      // coder+skeleton choice (see insertRootBranch).
+      const promptId = newNodeId();
       ctx.db
         .insert(schema.nodes)
         .values({
-          id,
+          id: promptId,
           parentId: null,
           canvasId,
-          kind: 'coder',
+          kind: 'instruction',
           positionX,
-          positionY: input.position?.y ?? 0,
+          positionY,
           instruction: input.instruction,
-          status: 'idle',
-          skeletonName: input.skeletonName ?? null,
-          coderName: input.coderName ?? null,
-          ...(input.autoRun && input.autoRun > 1
-            ? { autoRunTotal: input.autoRun, autoRunRemaining: input.autoRun }
-            : {}),
+          status: 'done',
           isFavorite: false,
           createdAt: now,
           updatedAt: now,
         })
         .run();
-      await bindInlineReferences(ctx, id, input.references);
-      const run = ctx.orchestrator.startRun(id);
+
+      const { coderId } = insertRootBranch(ctx.db, {
+        prompt: { id: promptId, canvasId },
+        instruction: input.instruction,
+        coderName: input.coderName ?? null,
+        skeletonName: input.skeletonName ?? null,
+        x: positionX,
+        y: nextChildY(positionY, INSTRUCTION_CARD_HEIGHT),
+        autoRun: input.autoRun,
+        now,
+      });
+
+      // References + any auto-run budget live on the coder (the runnable node),
+      // not the run-less root. Return the coder as `node` so callers keep
+      // selecting the node that runs.
+      await bindInlineReferences(ctx, coderId, input.references);
+      const run = ctx.orchestrator.startRun(coderId);
       const node = ctx.db
         .select()
         .from(schema.nodes)
-        .where(eq(schema.nodes.id, id))
+        .where(eq(schema.nodes.id, coderId))
         .get()!;
       return { node, run };
+    }),
+
+  /**
+   * Batch / compare: one shared `instruction` root fanned out into N branches,
+   * one per (coder × skeleton) combination the artist picked. Each branch is a
+   * `config` marker + `coder` (see insertRootBranch) seeding its own skeleton
+   * and running the same prompt — so several models/skeletons can be compared
+   * side by side. References are shared (bound onto every branch coder). No
+   * auto-run here: it would multiply cycles across every branch; use a single
+   * root's auto-run or Continue for iteration.
+   */
+  createBatch: publicProcedure
+    .input(
+      z.object({
+        instruction: z.string().min(1),
+        position: positionSchema,
+        canvasId: z.string().optional(),
+        combinations: z
+          .array(
+            z.object({
+              coderName: z.string(),
+              skeletonName: z.string().optional(),
+            })
+          )
+          .min(1),
+        references: z.array(referenceInputSchema).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      for (const combo of input.combinations) {
+        if (!ctx.config.coders.has(combo.coderName)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `unknown coder '${combo.coderName}'`,
+          });
+        }
+      }
+      const canvasId = resolveCanvasId(ctx.db, input.canvasId);
+      const now = Date.now();
+      const existing = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.canvasId, canvasId))
+        .all();
+      const positionX =
+        input.position?.x ??
+        (existing.length
+          ? Math.max(...existing.map((n) => n.positionX)) + 2 * SIBLING_X_STEP
+          : 0);
+      const positionY = input.position?.y ?? 0;
+
+      const promptId = newNodeId();
+      ctx.db
+        .insert(schema.nodes)
+        .values({
+          id: promptId,
+          parentId: null,
+          canvasId,
+          kind: 'instruction',
+          positionX,
+          positionY,
+          instruction: input.instruction,
+          status: 'done',
+          isFavorite: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      // Fan the branches out horizontally from the root's column; Re-layout
+      // later re-centres the root above them via the tidy-tree.
+      const branchY = nextChildY(positionY, INSTRUCTION_CARD_HEIGHT);
+      const coderIds = input.combinations.map((combo, i) => {
+        const { coderId } = insertRootBranch(ctx.db, {
+          prompt: { id: promptId, canvasId },
+          instruction: input.instruction,
+          coderName: combo.coderName,
+          skeletonName: combo.skeletonName ?? null,
+          x: positionX + i * SIBLING_X_STEP,
+          y: branchY,
+          now,
+        });
+        return coderId;
+      });
+
+      // Shared references land on every branch coder (row copies, the same
+      // inheritance shape fork/continue use). Best-effort, per coder.
+      for (const coderId of coderIds) {
+        await bindInlineReferences(ctx, coderId, input.references);
+      }
+      const runs = coderIds.map((coderId) => ctx.orchestrator.startRun(coderId));
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, promptId))
+        .get()!;
+      return { node, coderIds, runs };
     }),
 
   /**
@@ -518,6 +714,15 @@ export const nodesRouter = router({
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: `node ${input.nodeId}`,
+        });
+      }
+      // Settled markers (instruction root, config switch) have no run to
+      // re-run — reject before we'd otherwise startRun a non-coder. The UI
+      // doesn't offer Retry on them, but the debug bridge could.
+      if (node.kind !== 'coder' && node.kind !== 'critique') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `cannot retry a ${node.kind} node`,
         });
       }
       // Coder retries are only valid for the leaf of a branch: anything

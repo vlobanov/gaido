@@ -14,6 +14,10 @@ export const CODER_CARD_HEIGHT = 360;
 // coder/session line + borders. Mirrors ConfigCard.tsx in apps/web.
 export const CONFIG_CARD_HEIGHT = 100;
 
+// Instruction (root) card height: header + a 3-line clamped prompt + borders.
+// Mirrors InstructionCard.tsx in apps/web.
+export const INSTRUCTION_CARD_HEIGHT = 128;
+
 // CritiqueCard rendered height, estimated from content.
 const CRIT_HEADER = 37;
 const CRIT_PADDING_Y = 24;
@@ -135,7 +139,9 @@ export function layoutCanvasNodes(
         ? CODER_CARD_HEIGHT
         : node.kind === 'config'
           ? CONFIG_CARD_HEIGHT
-          : critiqueCardHeight(critiqueByNodeId.get(id) ?? null);
+          : node.kind === 'instruction'
+            ? INSTRUCTION_CARD_HEIGHT
+            : critiqueCardHeight(critiqueByNodeId.get(id) ?? null);
     const nextY = y + h + GAP;
     for (const k of childrenById.get(id) ?? []) {
       assignY(k.id, nextY);

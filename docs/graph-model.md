@@ -2,14 +2,24 @@
 
 Gaido's graph **is** the workflow. Coder and critique nodes alternate (with optional config nodes spliced in); a node is a slot, runs are attempts to fill it. No external workflow runtime — see `docs/conventions.md` for why.
 
-## Node kinds: coder, critique & config
+## Node kinds: instruction, coder, critique & config
 
-`nodes.kind` discriminates. The graph alternates `coder → critique → coder → critique`, with an optional `config` node spliced between a critique and the coder it spawns (`… → critique → config → coder → …`).
+`nodes.kind` discriminates. Every tree is rooted at an `instruction` node holding the shared prompt; each branch below it begins `config → coder`, then alternates `coder → critique → coder → critique`, with further `config` nodes spliced between a critique and the coder it spawns (`instruction → config → coder → critique → config → coder → …`).
 
 - A coder finishing successfully auto-spawns one critique child in `status='idle'`; the user clicks to run the critic (or calls `retry` / `runCritique` from the test bridge).
 - Forking a coder lands the new coder **under its critique child** — multiple forks from the same coder produce sibling coders under one shared critique.
 - Direct coder-to-coder children are rejected by `createChild`.
 - A partial unique index `(parent_id) WHERE kind='critique'` makes the auto-spawn idempotent across retries.
+- **Legacy graphs** created before the instruction-root refactor have a bare `coder` root (`parent_id=null`). These still render (the coder card shows its instruction only for such a root); no migration is performed.
+
+### Instruction root (single seed & batch)
+
+An `instruction` node is a **settled marker** (`status='done'`, no run/worktree/branch/session) that holds the prompt shared by every branch beneath it — so the instruction lives in one visible place instead of being re-echoed on each coder card. Both entry points build the same shape, `instruction → config → coder`:
+
+- **`createRoot`** (the seed modal, unchanged UX) inserts the instruction root and **one** `config → coder` branch for the picked coder+skeleton.
+- **`createBatch`** (the "Batch" button / `BatchModal`) inserts one instruction root and **N** `config → coder` branches — one per (coder × skeleton) combination — so several models/skeletons run the same prompt side by side. References are shared onto every branch coder; no auto-run (it would multiply cycles across branches).
+
+Each branch's `coder` carries its own `skeleton_name` (so the orchestrator seeds its worktree from `seed/<skeleton>` — the branch is its own anchor) and leaves `coder_name` null, inheriting the `config` marker's choice by lineage walk. The `config` marker under an instruction root reads as **"Coder"** (initial choice, `session_policy='reset'`), vs. **"Switch coder"** under a critique.
 
 ### Config nodes (mid-graph coder switch)
 
@@ -35,7 +45,7 @@ Entry points: the seed modal (`createRoot({ autoRun })`) and `autoRun({ nodeId, 
 
 The config holds a **named coder registry** (`coders: Record<string, Coder>`, or a single `coder` registered as `"default"` — `resolveCoderRegistry` in `packages/core`). A node's effective coder is the first non-null `coder_name` walking up its parent chain, else the registry default — the same inherit-down-lineage shape as `skeleton_name`. `coder_name` is set only where a coder is *chosen*:
 
-- **Root coders** — picked in the seed modal (`createRoot`).
+- **Root config nodes** — the coder+skeleton picked in the seed modal (`createRoot`) or per-branch in `createBatch`, recorded on the `config` marker under the instruction root. The branch coder beneath leaves `coder_name` null and inherits it.
 - **Config nodes** — the mid-graph switch above.
 - **Coder nodes whose model was swapped on Retry** — `retry({ coderName })` pins the new coder on the node. Gated to **session-compatible** coders when the branch has a live session (you can't resume one adapter's session under another); use a config switch for an incompatible swap.
 

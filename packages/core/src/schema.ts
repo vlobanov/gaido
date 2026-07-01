@@ -40,10 +40,11 @@ export const nodes = sqliteTable(
      */
     branchAnchorId: text('branch_anchor_id'),
     /**
-     * Skeleton preset name. Only meaningful on root coders — names a folder
-     * under `<projectDir>/skeletons/` or `~/.gaido/skeletons/` that seeds the
-     * worktree. NULL → `'default'`. Forks inherit via branch lineage and
-     * leave this NULL.
+     * Skeleton preset name — a folder under `<projectDir>/skeletons/` or
+     * `~/.gaido/skeletons/` that seeds a branch's worktree. Set on the coder
+     * that owns the branch (the orchestrator seeds from `anchor.skeletonName`)
+     * and, for display, on the root `config` marker above it. NULL → `'default'`.
+     * Continued/forked nodes inherit via branch lineage and leave this NULL.
      */
     skeletonName: text('skeleton_name'),
     /**

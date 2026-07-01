@@ -1,12 +1,16 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { SessionPolicy } from '@vadimlobanov/gaido-core';
+import type { NodeKind, SessionPolicy } from '@vadimlobanov/gaido-core';
 
 export interface ConfigCardData {
   id: string;
   instruction: string;
   coderName: string | null;
+  resolvedCoderName: string;
+  skeletonName: string | null;
   sessionPolicy: SessionPolicy | null;
+  /** Kind of the parent node: 'critique' → mid-graph switch; 'instruction' → root choice. */
+  parentKind: NodeKind | null;
   selected: boolean;
   [key: string]: unknown;
 }
@@ -17,12 +21,17 @@ const POLICY_LABEL: Record<SessionPolicy, string> = {
 };
 
 /**
- * Config (coder-switch) node — a settled marker recording a mid-graph coder
- * change. No run, no render: it sits between a critique and the coder it
- * spawned, naming the new coder and how it treats the branch's session.
+ * Config node — a settled marker recording a coder/skeleton choice. It appears
+ * in two places, discriminated by its parent:
+ * - under an `instruction` root → the initial coder+skeleton for a branch
+ *   ("Coder"); shows the seeding skeleton.
+ * - under a `critique` → a mid-graph coder switch ("Switch coder"); shows the
+ *   session policy it wired.
+ * No run, no render either way.
  */
 function ConfigCardComponent({ data, selected }: NodeProps) {
   const d = data as unknown as ConfigCardData;
+  const isSwitch = d.parentKind === 'critique';
   const policy = d.sessionPolicy;
   const borderCls = selected
     ? 'border-sanguine'
@@ -42,25 +51,31 @@ function ConfigCardComponent({ data, selected }: NodeProps) {
           aria-hidden
           className="inline-flex h-4 w-4 items-center justify-center border border-hairline-deep bg-paper-deep text-[11px] text-ink"
         >
-          ⇄
+          {isSwitch ? '⇄' : '◇'}
         </span>
         <span className="font-mono text-xs uppercase tracking-caps text-ink-muted">
-          Switch coder
+          {isSwitch ? 'Switch coder' : 'Coder'}
         </span>
       </div>
 
       <div className="px-4 py-3">
         <p
           className="truncate font-mono text-sm text-ink"
-          title={d.coderName ?? undefined}
+          title={d.resolvedCoderName}
         >
-          {d.coderName ?? '—'}
+          {d.resolvedCoderName}
         </p>
-        {policy ? (
+        {isSwitch ? (
+          policy ? (
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+              {POLICY_LABEL[policy]}
+            </p>
+          ) : null
+        ) : (
           <p className="mt-1 font-mono text-[10px] uppercase tracking-caps text-ink-muted">
-            {POLICY_LABEL[policy]}
+            skeleton · {d.skeletonName ?? 'default'}
           </p>
-        ) : null}
+        )}
       </div>
 
       <Handle type="source" position={Position.Bottom} />

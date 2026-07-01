@@ -63,6 +63,8 @@ export function Sidebar({ nodeId }: SidebarProps) {
     <CritiqueSidebar nodeId={nodeId} />
   ) : node.kind === 'config' ? (
     <ConfigSidebar nodeId={nodeId} />
+  ) : node.kind === 'instruction' ? (
+    <InstructionSidebar nodeId={nodeId} />
   ) : (
     <CoderSidebar nodeId={nodeId} />
   );
@@ -1890,6 +1892,17 @@ function ConfigSidebar({ nodeId }: { nodeId: string }) {
   const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
   const nodesList = trpc.nodes.list.useQuery();
   const node = nodeQuery.data?.node;
+  const resolvedCoderName =
+    nodeQuery.data?.resolvedCoderName ?? node?.coderName ?? null;
+
+  // Discriminate the two config flavours by parent: under a critique it's a
+  // mid-graph coder switch (session policy matters); under an instruction root
+  // it's the initial coder+skeleton choice for a branch.
+  const parentKind = useMemo(() => {
+    if (!nodesList.data || !node?.parentId) return null;
+    return nodesList.data.find((n) => n.id === node.parentId)?.kind ?? null;
+  }, [nodesList.data, node?.parentId]);
+  const isSwitch = parentKind === 'critique';
 
   const childCoder = useMemo(() => {
     if (!nodesList.data) return null;
@@ -1914,20 +1927,30 @@ function ConfigSidebar({ nodeId }: { nodeId: string }) {
     <SidebarShell onClose={() => setSelectedNodeId(null)}>
       <div className="flex flex-col gap-6 p-5">
         <div className="font-mono text-xs uppercase tracking-caps text-ink-muted">
-          Config · coder switch
+          {isSwitch ? 'Config · coder switch' : 'Config · coder'}
         </div>
 
         <Section label="Coder">
-          <p className="font-mono text-base text-ink">{node.coderName ?? '—'}</p>
-        </Section>
-
-        <Section label="Session">
-          <p className="font-mono text-xs uppercase tracking-caps text-ink-soft">
-            {policy === 'retain'
-              ? 'Retain · resumes the branch session'
-              : 'Reset · fresh session, same code'}
+          <p className="font-mono text-base text-ink">
+            {resolvedCoderName ?? '—'}
           </p>
         </Section>
+
+        {isSwitch ? (
+          <Section label="Session">
+            <p className="font-mono text-xs uppercase tracking-caps text-ink-soft">
+              {policy === 'retain'
+                ? 'Retain · resumes the branch session'
+                : 'Reset · fresh session, same code'}
+            </p>
+          </Section>
+        ) : (
+          <Section label="Skeleton">
+            <p className="font-mono text-base text-ink">
+              {node.skeletonName ?? 'default'}
+            </p>
+          </Section>
+        )}
 
         {childCoder ? (
           <Section label="Spawned coder">
@@ -1958,8 +1981,71 @@ function ConfigSidebar({ nodeId }: { nodeId: string }) {
 
       {confirmDelete ? (
         <ConfirmDialog
-          title="Delete config node?"
-          description="Removes the coder switch and the coder (plus its descendants) spawned under it. The action cannot be undone."
+          title={isSwitch ? 'Delete config node?' : 'Delete this branch?'}
+          description={
+            isSwitch
+              ? 'Removes the coder switch and the coder (plus its descendants) spawned under it. The action cannot be undone.'
+              : 'Removes this coder+skeleton branch — its coder, critiques, and descendants. The instruction and any sibling branches are kept. The action cannot be undone.'
+          }
+          confirmLabel="Delete"
+          danger
+          loading={deleteNode.isPending}
+          onConfirm={() => deleteNode.mutate({ nodeId })}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      ) : null}
+    </SidebarShell>
+  );
+}
+
+function InstructionSidebar({ nodeId }: { nodeId: string }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
+  const utils = trpc.useUtils();
+
+  const nodeQuery = trpc.nodes.get.useQuery({ nodeId });
+  const node = nodeQuery.data?.node;
+
+  const deleteNode = trpc.nodes.delete.useMutation({
+    onSuccess: () => {
+      utils.nodes.list.invalidate();
+      setSelectedNodeId(null);
+    },
+  });
+
+  if (!node) return null;
+
+  return (
+    <SidebarShell onClose={() => setSelectedNodeId(null)}>
+      <div className="flex flex-col gap-6 p-5">
+        <div className="font-mono text-xs uppercase tracking-caps text-ink-muted">
+          Instruction · root
+        </div>
+
+        <Section label="Prompt">
+          <p className="whitespace-pre-wrap font-serif text-sm leading-snug text-ink">
+            {node.instruction || '—'}
+          </p>
+        </Section>
+
+        {!READ_ONLY && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="sidebar-delete"
+              className="ml-auto px-3 py-2 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+
+      {confirmDelete ? (
+        <ConfirmDialog
+          title="Delete this instruction?"
+          description="Removes the instruction and every branch under it — all coders, critiques, and their descendants. The action cannot be undone."
           confirmLabel="Delete"
           danger
           loading={deleteNode.isPending}

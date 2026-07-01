@@ -15,6 +15,7 @@ import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
 import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';
 import { ConfigCard, type ConfigCardData } from './ConfigCard';
+import { InstructionCard, type InstructionCardData } from './InstructionCard';
 
 interface GaidoNode {
   id: string;
@@ -28,6 +29,7 @@ interface GaidoNode {
   currentRunId: string | null;
   coderName: string | null;
   resolvedCoderName: string;
+  skeletonName: string | null;
   sessionPolicy: SessionPolicy | null;
   autoRunTotal: number | null;
   autoRunRemaining: number | null;
@@ -52,12 +54,17 @@ interface GraphProps {
   nodes: GaidoNode[];
 }
 
-type CardData = CoderCardData | CritiqueCardData | ConfigCardData;
+type CardData =
+  | CoderCardData
+  | CritiqueCardData
+  | ConfigCardData
+  | InstructionCardData;
 
 const nodeTypes: NodeTypes = {
   coder: CoderCard,
   critique: CritiqueCard,
   config: ConfigCard,
+  instruction: InstructionCard,
 };
 
 export function Graph({ nodes: serverNodes }: GraphProps) {
@@ -99,42 +106,51 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
     return offsets;
   }, [serverNodes]);
 
-  const flowNodes = useMemo<Node<CardData>[]>(
-    () =>
-      serverNodes.map((n) => ({
+  const flowNodes = useMemo<Node<CardData>[]>(() => {
+    // Parent kind lets a config marker read as a root "Coder" choice vs. a
+    // mid-graph "Switch coder" (its parent is a critique). Closed under the
+    // per-canvas slice, so the lookup always resolves.
+    const kindById = new Map(serverNodes.map((n) => [n.id, n.kind] as const));
+    return serverNodes.map((n) => ({
+      id: n.id,
+      type: n.kind,
+      position: {
+        x: n.positionX + (laneOffsetByNodeId.get(n.id) ?? 0),
+        y: n.positionY,
+      },
+      data: {
         id: n.id,
-        type: n.kind,
-        position: {
-          x: n.positionX + (laneOffsetByNodeId.get(n.id) ?? 0),
-          y: n.positionY,
-        },
-        data: {
-          id: n.id,
-          instruction: n.instruction,
-          status: n.status,
-          isFavorite: n.isFavorite,
-          currentRunId: n.currentRunId,
-          coderName: n.coderName,
-          resolvedCoderName: n.resolvedCoderName,
-          sessionPolicy: n.sessionPolicy,
-          autoRunTotal: n.autoRunTotal,
-          autoRunRemaining: n.autoRunRemaining,
-          thumbnailArtifactId: n.thumbnailArtifactId,
-          videoArtifactId: n.videoArtifactId,
-          previewUrl: n.previewUrl,
-          message: n.kind === 'coder' ? n.message ?? null : null,
-          codingStartedAt: n.codingStartedAt,
-          codingFinishedAt: n.codingFinishedAt,
-          renderingStartedAt: n.renderingStartedAt,
-          renderingFinishedAt: n.renderingFinishedAt,
-          critiquingStartedAt: n.critiquingStartedAt,
-          critiquingFinishedAt: n.critiquingFinishedAt,
-          selected: n.id === selectedNodeId,
-        },
+        instruction: n.instruction,
+        status: n.status,
+        isFavorite: n.isFavorite,
+        currentRunId: n.currentRunId,
+        coderName: n.coderName,
+        resolvedCoderName: n.resolvedCoderName,
+        skeletonName: n.skeletonName,
+        sessionPolicy: n.sessionPolicy,
+        parentKind: n.parentId ? kindById.get(n.parentId) ?? null : null,
+        // Legacy roots (pre-instruction-node graphs) are coders with no
+        // parent — they keep showing their instruction. New coders always
+        // hang under a config/critique, so the instruction lives on the
+        // instruction root or the critique, not re-shown on the coder.
+        isRootCoder: n.kind === 'coder' && n.parentId === null,
+        autoRunTotal: n.autoRunTotal,
+        autoRunRemaining: n.autoRunRemaining,
+        thumbnailArtifactId: n.thumbnailArtifactId,
+        videoArtifactId: n.videoArtifactId,
+        previewUrl: n.previewUrl,
+        message: n.kind === 'coder' ? n.message ?? null : null,
+        codingStartedAt: n.codingStartedAt,
+        codingFinishedAt: n.codingFinishedAt,
+        renderingStartedAt: n.renderingStartedAt,
+        renderingFinishedAt: n.renderingFinishedAt,
+        critiquingStartedAt: n.critiquingStartedAt,
+        critiquingFinishedAt: n.critiquingFinishedAt,
         selected: n.id === selectedNodeId,
-      })),
-    [serverNodes, selectedNodeId, laneOffsetByNodeId]
-  );
+      },
+      selected: n.id === selectedNodeId,
+    }));
+  }, [serverNodes, selectedNodeId, laneOffsetByNodeId]);
 
   const flowEdges = useMemo<Edge[]>(
     () =>

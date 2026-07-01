@@ -27,6 +27,16 @@ export interface GaidoDebug {
       instruction: string,
       opts?: { skeletonName?: string; coderName?: string; autoRun?: number }
     ): Promise<unknown>;
+    /**
+     * Batch run: one instruction fanned out into N `config → coder` branches
+     * under a shared instruction root, one per combination. Resolves to
+     * `{ node, coderIds, runs }` — `node` is the instruction root, `coderIds`
+     * the branch coders (in combination order) for assertions.
+     */
+    createBatch(
+      instruction: string,
+      combinations: { coderName: string; skeletonName?: string }[]
+    ): Promise<unknown>;
     createCanvas(name?: string): Promise<unknown>;
     /**
      * Fork a coder node: waits for its auto-spawned critique child to exist,
@@ -143,6 +153,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
   const eventsRef = useRef<PersistedEvent[]>([]);
 
   const createRoot = trpc.nodes.createRoot.useMutation();
+  const createBatch = trpc.nodes.createBatch.useMutation();
   const createChild = trpc.nodes.createChild.useMutation();
   const retry = trpc.nodes.retry.useMutation();
   const rerunRender = trpc.nodes.rerunRender.useMutation();
@@ -229,6 +240,18 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
             ...(opts?.skeletonName ? { skeletonName: opts.skeletonName } : {}),
             ...(opts?.coderName ? { coderName: opts.coderName } : {}),
             ...(opts?.autoRun ? { autoRun: opts.autoRun } : {}),
+          });
+          await utils.nodes.list.invalidate();
+          return result;
+        },
+        async createBatch(
+          instruction: string,
+          combinations: { coderName: string; skeletonName?: string }[]
+        ) {
+          const result = await createBatch.mutateAsync({
+            instruction,
+            canvasId: canvasIdRef.current,
+            combinations,
           });
           await utils.nodes.list.invalidate();
           return result;
@@ -359,7 +382,7 @@ export function DebugBridge({ canvasId }: DebugBridgeProps) {
         delete window.__gaido;
       }
     };
-  }, [utils, createRoot, createChild, retry, rerunRender, switchCoder, cancel, autoRun, interruptAuto, deleteNode, createCanvas, setLocation]);
+  }, [utils, createRoot, createBatch, createChild, retry, rerunRender, switchCoder, cancel, autoRun, interruptAuto, deleteNode, createCanvas, setLocation]);
 
   return null;
 }

@@ -20,7 +20,8 @@ window.__gaido = {
   events: PersistedEvent[]                // 500-item ring buffer from a global ws subscription
 
   trigger: {
-    createRoot(instruction): Promise
+    createRoot(instruction, opts?): Promise   // seeds instruction root → config → coder (single branch); opts: { skeletonName?, coderName?, autoRun? }; resolves { node (the branch coder), run }
+    createBatch(instruction, combinations): Promise  // one instruction root, N config→coder branches; combinations: { coderName, skeletonName? }[]; resolves { node (the instruction root), coderIds, runs }
     fork(coderNodeId, instruction): Promise   // waits for coder→done, lands new coder under its critique child
     runCritique(critiqueNodeId): Promise      // start an idle critique's first run (thin wrapper over retry)
     select(nodeId | null): void
@@ -44,11 +45,12 @@ Names by component:
 
 | Component | Testid(s) |
 |---|---|
-| `EmptyState` | `empty-create-root`, `create-root-form`, `create-root-skeleton` (only when presets are available), `create-root-input`, `create-root-submit`, `create-root-cancel` |
-| `CoderCard` / `CritiqueCard` | `node-card` (with `data-node-id`, `data-node-kind` = `coder`\|`critique`, `data-status`, `data-favorite`), `node-favorite-toggle`, `critique-run` (idle critique's "Run critic" button) |
+| `EmptyState` | `empty-create-root`, `empty-batch`, `create-root-form`, `create-root-skeleton` (only when presets are available), `create-root-input`, `create-root-submit`, `create-root-cancel` |
+| `BatchModal` | `batch-form`, `batch-input`, `batch-coders`, `batch-coder-<name>`, `batch-skeletons`, `batch-skeleton-<name>`, `batch-combos`, `batch-combo`, `batch-combo-remove`, `batch-submit`, `batch-cancel` |
+| `CoderCard` / `CritiqueCard` / `ConfigCard` / `InstructionCard` | `node-card` (with `data-node-id`, `data-node-kind` = `coder`\|`critique`\|`config`\|`instruction`; `data-status`/`data-favorite` on coder & critique only). Coder cards show their instruction only for a legacy root (`data-node-kind="coder"` with no parent); new coders don't. Also `node-favorite-toggle`, `critique-run` (idle critique's "Run critic" button), `config-child-link` (config sidebar) |
 | `StatusBadge` | `status-badge` (with `data-status`) |
 | `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-rerender` (coder only, when the current run failed during rendering), `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel`, `rerender-error` |
-| `Toolbar` | `toolbar` |
+| `Toolbar` | `toolbar`, `toolbar-seed-root`, `toolbar-batch` |
 | `EventStream` | `event-stream`, `event-row` (with `data-event-kind`) |
 
 ## Patterns that work well with Playwright MCP

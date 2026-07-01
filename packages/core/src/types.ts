@@ -8,7 +8,7 @@ export type NodeStatus =
 
 export type RunStatus = NodeStatus;
 
-export type NodeKind = 'coder' | 'critique' | 'config';
+export type NodeKind = 'coder' | 'critique' | 'config' | 'instruction';
 
 /**
  * Session handling for the coder spawned beneath a config node (and for the

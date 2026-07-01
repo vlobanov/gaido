@@ -25,6 +25,12 @@ export interface CoderCardData extends PhaseTiming {
   /** Effective coder (lineage-resolved). Shown on the card only when the
    * project registers more than one coder — otherwise it's constant noise. */
   resolvedCoderName: string;
+  /**
+   * True only for a legacy root coder (no parent — pre-instruction-node
+   * graphs). New coders hang under a config/critique, so their instruction
+   * lives on the instruction root or the critique and is NOT re-shown here.
+   */
+  isRootCoder: boolean;
   currentRunId: string | null;
   autoRunTotal: number | null;
   autoRunRemaining: number | null;
@@ -124,27 +130,31 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         currentRunId={d.currentRunId}
       />
 
-      <div className="border-t border-hairline px-4 pb-3 pt-3">
-        {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
-        {d.instruction ? (
-          <p
-            className="font-serif text-base leading-snug text-ink"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-            title={d.instruction}
-          >
-            {d.instruction}
-          </p>
-        ) : (
-          <p className="font-serif text-base italic text-ink-faint">
-            no instruction
-          </p>
-        )}
-      </div>
+      {showCoder || d.isRootCoder ? (
+        <div className="border-t border-hairline px-4 pb-3 pt-3">
+          {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
+          {d.isRootCoder ? (
+            d.instruction ? (
+              <p
+                className="font-serif text-base leading-snug text-ink"
+                style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+                title={d.instruction}
+              >
+                {d.instruction}
+              </p>
+            ) : (
+              <p className="font-serif text-base italic text-ink-faint">
+                no instruction
+              </p>
+            )
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
@@ -213,7 +223,7 @@ function MessageOnlyCard({
           <span>{MESSAGE_KIND_LABEL[message.kind]}</span>
         </div>
         {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
-        {d.instruction ? (
+        {d.isRootCoder && d.instruction ? (
           <p
             className="font-serif text-xs italic leading-snug text-ink-muted"
             style={{

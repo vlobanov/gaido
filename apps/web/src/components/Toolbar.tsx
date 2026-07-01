@@ -4,6 +4,7 @@ import { trpc } from '../lib/trpc';
 import { READ_ONLY } from '../lib/static';
 import { canvasHref } from '../lib/canvas-url';
 import { CreateRootModal } from './EmptyState';
+import { BatchModal } from './BatchModal';
 
 interface CanvasSummary {
   id: string;
@@ -19,6 +20,7 @@ interface ToolbarProps {
 export function Toolbar({ nodeCount, canvas }: ToolbarProps) {
   const [open, setOpen] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const utils = trpc.useUtils();
   const relayout = trpc.nodes.relayout.useMutation({
@@ -83,6 +85,16 @@ export function Toolbar({ nodeCount, canvas }: ToolbarProps) {
             + Seed root
           </button>
         )}
+        {!READ_ONLY && (
+          <button
+            type="button"
+            data-testid="toolbar-batch"
+            onClick={() => setBatchOpen(true)}
+            className="border border-hairline bg-paper px-3 py-1 font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:border-hairline-deep hover:bg-paper-deep hover:text-ink"
+          >
+            + Batch
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-4">
         {!READ_ONLY && (
@@ -102,6 +114,9 @@ export function Toolbar({ nodeCount, canvas }: ToolbarProps) {
       </div>
       {seedOpen ? (
         <CreateRootModal canvas={canvas} onClose={() => setSeedOpen(false)} />
+      ) : null}
+      {batchOpen ? (
+        <BatchModal canvas={canvas} onClose={() => setBatchOpen(false)} />
       ) : null}
     </header>
   );
