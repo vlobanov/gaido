@@ -64,5 +64,7 @@ export default defineConfig({
       ...(process.env.GAIDO_R2_REGION ? { region: process.env.GAIDO_R2_REGION } : {}),
     },
     include: { livePreviews: true },
+    // Emit /index.html-suffixed URLs (for serving from bare R2 without a Worker).
+    ...(process.env.GAIDO_PUBLISH_INDEX_HTML ? { indexHtmlUrls: true } : {}),
   },
 });

@@ -79,6 +79,7 @@ publish: {
   include: { livePreviews: false, events: false, instructions: true },
   redact: { artistFollowUp: true },            // sessionId/paths/cost always stripped
   slug: (canvas) => canvas.slug,               // public URL key; default = canvas slug
+  // indexHtmlUrls: true,                       // serving from bare R2 (no Worker)? append /index.html to page + preview URLs
 }
 ```
 
@@ -103,6 +104,7 @@ One bucket, one Worker, one origin. R2 object keys mirror URL paths so the Worke
 - **R2 keys**: `<slug>/index.html` (page), `<slug>/artifacts/*` (media), `<slug>/refs/*` (reference images), `p/<sha>/*` (live previews), shared `assets/*` (the hashed viewer bundle, built with `pnpm --filter @gaido/web build:static`).
 - **Worker** on the one domain (`graphs.gaido.ai`, covered by `*.gaido.ai` Universal SSL — no ACM): serves `env.BUCKET.get(pathname)`; for an extensionless path it tries `<path>/index.html` first, so `/<slug>`, `/<slug>/`, and `/p/<sha>/` all resolve. `immutable` cache for `assets/*`, `*/artifacts/*`, and `p/*`; `max-age=60` for a canvas page; `If-None-Match` → 304.
 - **Reserved slugs**: pages live at `/<slug>`, so `assets` and `p` can't be canvas slugs — the publisher rejects them.
+- **No Worker?** R2 has no directory-index, so extensionless URLs (`/<slug>`, `/p/<sha>/`) 404 when served straight from a bare R2 custom domain. Set `publish.indexHtmlUrls: true` to emit `/index.html`-suffixed URLs (exact object keys R2 resolves) — you lose clean URLs and the root 404 but need no Worker. A Cloudflare URL-rewrite rule appending `/index.html` to extensionless paths is the no-code middle ground.
 
 ## Build status
 

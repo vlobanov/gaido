@@ -130,6 +130,15 @@ export interface PublishConfig {
   };
   /** Map a canvas to its public URL slug. Default: the canvas's own slug. */
   slug?: (canvas: { id: string; slug: string; name: string | null }) => string;
+  /**
+   * Append `/index.html` to the extensionless URLs (the canvas page and the
+   * live-preview links). Set this when serving straight from R2 with **no
+   * Worker / URL-rewrite rule** — R2 has no directory-index, so `/p/<sha>/`
+   * 404s while `/p/<sha>/index.html` (an exact object key) resolves. Default
+   * false (clean URLs, assuming the Worker or a rewrite rule supplies the
+   * index.html fallback).
+   */
+  indexHtmlUrls?: boolean;
 }
 
 export interface GaidoConfig {

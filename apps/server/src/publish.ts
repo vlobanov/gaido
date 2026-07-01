@@ -149,7 +149,7 @@ export async function publishCanvas(opts: PublishOptions): Promise<PublishResult
       published.push({
         slug: canvas.slug,
         publishSlug: bundle.publishSlug,
-        url: `${siteUrl}/${bundle.publishSlug}`,
+        url: `${siteUrl}/${bundle.publishSlug}${publish.indexHtmlUrls ? '/index.html' : ''}`,
         entries: bundle.entries.length,
         bytes: bundle.totalBytes,
         uploaded: !!r2,
@@ -212,6 +212,7 @@ async function buildBundle(args: {
 
   const include = publish.include ?? {};
   const livePreviews = include.livePreviews ?? false;
+  const indexHtml = publish.indexHtmlUrls ?? false;
 
   // Rows we need by-id (the snapshot strips disk paths, so query them here).
   const nodeIds = db
@@ -272,7 +273,9 @@ async function buildBundle(args: {
     urls: {
       artifact: ({ id, ext }) => `${siteUrl}/${publishSlug}/artifacts/${id}${ext}`,
       preview: ({ commitSha }) =>
-        livePreviews && commitSha ? `${siteUrl}/p/${previewKey(commitSha)}/` : null,
+        livePreviews && commitSha
+          ? `${siteUrl}/p/${previewKey(commitSha)}/${indexHtml ? 'index.html' : ''}`
+          : null,
       imageRef: ({ id, ext }) =>
         imageRefIds.has(id) ? `${siteUrl}/${publishSlug}/refs/${id}${ext}` : null,
     },
@@ -337,6 +340,9 @@ async function buildBundle(args: {
         const rel = path.relative(dir, file).split(path.sep).join('/');
         // Don't publish agent instructions / overlay control files.
         if (rel === 'CLAUDE.md' || rel.endsWith('/CLAUDE.md')) continue;
+        // Skip any dotfile / dot-directory that landed in the run's commit
+        // (.serena/, .gitignore, a stray .env, …) — never serve hidden files.
+        if (rel.split('/').some((seg) => seg.startsWith('.'))) continue;
         entries.push({
           key: `p/${k}/${rel}`,
           body: fs.readFileSync(file),
