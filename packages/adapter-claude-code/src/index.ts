@@ -29,6 +29,14 @@ export interface ClaudeCodeCoderOpts {
    * fully interactive (will hang in non-tty contexts).
    */
   permissionMode?: ClaudeCodePermissionMode;
+  /**
+   * Whether Claude Code's automatic memory is active for this coder. Default:
+   * `false` — the adapter sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` on the spawn
+   * so the user's global/project auto-memory doesn't leak into the creative
+   * coding turn (or accrue new memory from it). Set `true` to let Claude Code
+   * manage memory normally; the config wins over any ambient env flag.
+   */
+  autoMemory?: boolean;
   /** Extra CLI args appended to the spawn (after the standard flags). */
   extraArgs?: string[];
 }
@@ -39,6 +47,7 @@ export function claudeCodeCoder(opts: ClaudeCodeCoderOpts = {}): Coder {
     model: opts.model ?? 'claude-sonnet-4-6',
     permissionMode: opts.permissionMode ?? 'bypassPermissions',
     effort: opts.effort,
+    autoMemory: opts.autoMemory ?? false,
     extraArgs: opts.extraArgs ?? [],
   };
 
@@ -53,7 +62,26 @@ interface ResolvedConfig {
   model: string;
   permissionMode: ClaudeCodePermissionMode;
   effort?: string;
+  autoMemory: boolean;
   extraArgs: string[];
+}
+
+/**
+ * Build the child env for a `claude` spawn, applying the auto-memory policy.
+ * When `autoMemory` is false (the adapter default) we set
+ * `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` so Claude Code's automatic memory doesn't
+ * bleed the user's global/project memory into the run — or accrue new memory
+ * from it. When true we clear any ambient disable flag, so the adapter config,
+ * not the surrounding shell, decides. Shared by the coder and the critic.
+ */
+export function claudeSpawnEnv(autoMemory: boolean): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (autoMemory) {
+    delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+  } else {
+    env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1';
+  }
+  return env;
 }
 
 async function runCoder(
@@ -86,13 +114,14 @@ async function runCoder(
   args.push(...cfg.extraArgs);
 
   ctx.logger.info(
-    `[claude-code] spawn ${cfg.bin} model=${cfg.model}${cfg.effort ? ` effort=${cfg.effort}` : ''} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
+    `[claude-code] spawn ${cfg.bin} model=${cfg.model}${cfg.effort ? ` effort=${cfg.effort}` : ''} mem=${cfg.autoMemory ? 'on' : 'off'} resume=${input.priorSessionId ?? 'none'} ${input.followUp ? 'follow-up ' : ''}cwd=${ctx.workdir}`
   );
 
   return new Promise<CoderResult>((resolve, reject) => {
     const child = spawn(cfg.bin, args, {
       cwd: ctx.workdir,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: claudeSpawnEnv(cfg.autoMemory),
     });
 
     let sessionId: string | null = input.priorSessionId ?? null;

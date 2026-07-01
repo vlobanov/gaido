@@ -9,6 +9,7 @@ import type {
   Critique,
   RunContext,
 } from '@vadimlobanov/gaido-core';
+import { claudeSpawnEnv } from './index.js';
 import type { ClaudeCodePermissionMode } from './index.js';
 
 export interface ClaudeCodeCriticOpts {
@@ -23,6 +24,13 @@ export interface ClaudeCodeCriticOpts {
    * but bypass keeps things simple in a sandboxed temp dir.
    */
   permissionMode?: ClaudeCodePermissionMode;
+  /**
+   * Whether Claude Code's automatic memory is active for the critic. Default:
+   * `false` — the adapter sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` so the user's
+   * auto-memory doesn't leak into the review turn. Set `true` to leave Claude
+   * Code's memory untouched.
+   */
+  autoMemory?: boolean;
   /** Number of evenly-spaced frames to extract from the video. Default 6. */
   frameCount?: number;
   /** Extra CLI args appended after the standard flags. */
@@ -48,6 +56,7 @@ export function claudeCodeCritic(opts: ClaudeCodeCriticOpts = {}): Critic {
     ffmpegBin: opts.ffmpegBin ?? 'ffmpeg',
     model: opts.model ?? 'claude-sonnet-4-6',
     permissionMode: opts.permissionMode ?? 'bypassPermissions',
+    autoMemory: opts.autoMemory ?? false,
     frameCount: Math.max(1, Math.min(20, opts.frameCount ?? 6)),
     extraArgs: opts.extraArgs ?? [],
     persona:
@@ -69,6 +78,7 @@ interface ResolvedCfg {
   ffmpegBin: string;
   model: string;
   permissionMode: ClaudeCodePermissionMode;
+  autoMemory: boolean;
   frameCount: number;
   extraArgs: string[];
   persona: string;
@@ -172,6 +182,7 @@ function runClaude(
     const child = spawn(cfg.bin, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: claudeSpawnEnv(cfg.autoMemory),
     });
 
     let stdoutBuf = '';
