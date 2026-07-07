@@ -1,0 +1,38 @@
+{
+  "name": "@vadimlobanov/gaido-adapter-blender",
+  "version": "0.1.0",
+  "description": "Headless Blender (Eevee) renderer for Gaido — animation video + GLB export.",
+  "license": "MIT",
+  "author": "Vadim Lobanov <vadim@lobanov.pw>",
+  "homepage": "https://gaido.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlobanov/gaido.git",
+    "directory": "packages/adapter-blender"
+  },
+  "bugs": "https://github.com/vlobanov/gaido/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../LICENSE ."
+  },
+  "dependencies": {
+    "@vadimlobanov/gaido-core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.10.1"
+  }
+}

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { schema, nodeId as newNodeId } from '@vadimlobanov/gaido-core';
-import type { Critique } from '@vadimlobanov/gaido-core';
+import type { ArtifactKind, Critique } from '@vadimlobanov/gaido-core';
 import type { Node } from '@vadimlobanov/gaido-core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
@@ -297,6 +297,7 @@ export const nodesRouter = router({
           updatedAt: schema.nodes.updatedAt,
           thumbnailArtifactId: schema.runs.thumbnailArtifactId,
           videoArtifactId: schema.runs.videoArtifactId,
+          outputArtifactId: schema.runs.outputArtifactId,
           previewUrl: schema.runs.previewUrl,
           message: schema.runs.message,
           codingStartedAt: schema.runs.codingStartedAt,
@@ -316,9 +317,31 @@ export const nodesRouter = router({
       // already carry `resolvedCoderName`.
       const byId = new Map(rows.map((r) => [r.id, r] as const));
       const defaultName = ctx.config.defaultCoderName;
+      // Resolve each output artifact's kind so the graph can pick a renderer
+      // per node (video vs. still image vs. model vs. page). One query over the
+      // distinct output ids, then a Map lookup — not a per-row round-trip.
+      const outputIds = [
+        ...new Set(
+          rows
+            .map((r) => r.outputArtifactId)
+            .filter((id): id is string => id != null)
+        ),
+      ];
+      const outputKindById = new Map<string, ArtifactKind>();
+      if (outputIds.length > 0) {
+        const arts = ctx.db
+          .select({ id: schema.artifacts.id, kind: schema.artifacts.kind })
+          .from(schema.artifacts)
+          .where(inArray(schema.artifacts.id, outputIds))
+          .all();
+        for (const a of arts) outputKindById.set(a.id, a.kind);
+      }
       return rows.map((r) => ({
         ...r,
         resolvedCoderName: resolveCoderNameInRows(r, byId, defaultName),
+        outputKind: r.outputArtifactId
+          ? outputKindById.get(r.outputArtifactId) ?? null
+          : null,
       }));
     }),
 
@@ -390,6 +413,29 @@ export const nodesRouter = router({
         resolveCoderName(ctx.db, node) ?? ctx.config.defaultCoderName;
       const resolvedCoderKind =
         ctx.config.coders.get(resolvedCoderName)?.kind ?? null;
+      // The run's primary output artifact resolved to { kind, mime } so the
+      // sidebar can pick how to present it (video / image / model / page)
+      // without a second round-trip. Reads `outputArtifactId` (any OutputKind),
+      // distinct from the video-specific `videoArtifactId`.
+      const currentRunOutput: {
+        artifactId: string;
+        kind: ArtifactKind;
+        mime: string;
+      } | null = (() => {
+        if (!currentRun?.outputArtifactId) return null;
+        const art = ctx.db
+          .select({
+            id: schema.artifacts.id,
+            kind: schema.artifacts.kind,
+            mime: schema.artifacts.mime,
+          })
+          .from(schema.artifacts)
+          .where(eq(schema.artifacts.id, currentRun.outputArtifactId))
+          .get();
+        return art
+          ? { artifactId: art.id, kind: art.kind, mime: art.mime }
+          : null;
+      })();
       return {
         node,
         currentRun,
@@ -397,6 +443,7 @@ export const nodesRouter = router({
         hasSession,
         resolvedCoderName,
         resolvedCoderKind,
+        currentRunOutput,
       };
     }),
 

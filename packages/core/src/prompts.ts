@@ -61,6 +61,8 @@ export const GAIDO_PROTOCOL_PREAMBLE = `GAIDO PROTOCOL:
 
 You are running inside the gaido framework. By default the artist sees your work as a rendered video produced from the code in this worktree. Your normal output is code; rendering happens automatically afterwards.
 
+RENDER PARAMS: the project config sets default render duration/fps/size. If your piece wants something else (a 12-second sequence, a 2-second loop), write a file named gaido.render.json at the worktree root, e.g. {"duration": 12}. Keys: duration (seconds, 0.5-120), fps, width, height — all optional, omitted keys keep the project defaults. Renderers whose source carries intrinsic timing (e.g. a Blender scene's frame range) treat your scene as the final word instead.
+
 There is a SEPARATE communication channel for talking to the artist in plain prose when code isn't the right answer. To use it, write a file named ${MESSAGE_FILENAME} at the worktree root in EXACTLY this format:
 
 ---

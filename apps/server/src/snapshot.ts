@@ -21,6 +21,19 @@ import type { Db } from './db.js';
 import type { ResolvedConfig } from './config-loader.js';
 
 /**
+ * Artifact kinds that ride a published snapshot: every {@link OutputKind}
+ * (`video` / `image` / `model` / `page`) any run output can be, plus
+ * `thumbnail`. Code / frame / log artifacts are omitted.
+ */
+const DISPLAYED_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  'video',
+  'image',
+  'model',
+  'page',
+  'thumbnail',
+]);
+
+/**
  * Resolves the public URLs that go into a snapshot. The default builder emits
  * relative paths suitable for local inspection; `gaido publish` (phase C)
  * supplies R2/CDN strategies that also drive the actual uploads. Keeping URL
@@ -136,6 +149,7 @@ export function buildCanvasSnapshot(
     critiquingFinishedAt: r.critiquingFinishedAt,
     config: slimConfig(r.configSnapshot),
     codeArtifactId: r.codeArtifactId,
+    outputArtifactId: r.outputArtifactId ?? null,
     videoArtifactId: r.videoArtifactId,
     thumbnailArtifactId: r.thumbnailArtifactId,
     previewUrl: previewUrl({
@@ -160,11 +174,14 @@ export function buildCanvasSnapshot(
   const runIds = runRows.map((r) => r.id);
 
   // --- Artifacts (only the displayed kinds) ---
+  // Every output kind (video / image / model / page) plus thumbnails — the
+  // media a run's outputArtifactId / videoArtifactId / thumbnailArtifactId can
+  // point at. Code / frame / log artifacts stay out of the published bundle.
   const artifactRows = runIds.length
     ? db.select().from(schema.artifacts).where(inArray(schema.artifacts.runId, runIds)).all()
     : [];
   const artifacts: SnapshotArtifact[] = artifactRows
-    .filter((a) => a.kind === 'video' || a.kind === 'thumbnail')
+    .filter((a) => DISPLAYED_ARTIFACT_KINDS.has(a.kind))
     .map((a) => {
       const ext = path.extname(a.path);
       return {

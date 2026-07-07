@@ -55,6 +55,7 @@
     "@vadimlobanov/gaido-adapter-cursor": "workspace:*",
     "@vadimlobanov/gaido-adapter-openrouter": "workspace:*",
     "@vadimlobanov/gaido-adapter-playwright-renderer": "workspace:*",
+    "@vadimlobanov/gaido-adapter-blender": "workspace:*",
     "open": "^10.1.0",
     "picocolors": "^1.1.1",
     "tsx": "^4.19.0"

@@ -93,17 +93,19 @@ node_modules/
  */
 export interface SkeletonTemplate {
   description: string;
+  /**
+   * Files scaffolded into `skeletons/<name>/`. Every skeleton ships a
+   * `CLAUDE.md` (agent guidance) and an entry file the renderer reads —
+   * `index.html` for the browser renderer, `scene.py` for Blender.
+   * `gaido.skeleton.ts` is the optional per-skeleton config overlay: excluded
+   * from the seed commit (never lands in a worktree or the art diff) and read
+   * live by the orchestrator to layer checks / render params / adapters over
+   * the project config for nodes using this skeleton.
+   */
   files: {
-    'index.html': string;
     'CLAUDE.md': string;
-    /**
-     * Optional per-skeleton config overlay. Excluded from the seed commit, so
-     * it never lands in a worktree or the art diff — it's read live by the
-     * orchestrator to layer checks / render params / adapters over the project
-     * config for nodes using this skeleton.
-     */
     'gaido.skeleton.ts'?: string;
-  };
+  } & Record<string, string>;
 }
 
 const pixiIndexHtml = `<!doctype html>
@@ -369,6 +371,134 @@ export default defineSkeleton({
 });
 `;
 
+const blenderScenedPy = `"""Gaido Blender scene — you (the coder agent) edit THIS file only.
+
+It runs headless inside Blender, via gaido's runner, which presets resolution,
+fps, and a default frame range BEFORE this script executes. Anything you set
+here wins. Do NOT call render/export operators — the runner owns rendering
+(Eevee), video encoding, and GLB export. Just describe the scene and keyframe
+the motion.
+
+The scene starts EMPTY: no default cube, camera, or light. You must add a
+camera AND a light or the render is black.
+"""
+
+import math
+
+import bpy
+
+scene = bpy.context.scene
+
+# Duration control: set the frame range explicitly (fps is preset by gaido).
+# Here: a 4-second loop at whatever fps gaido configured.
+fps = scene.render.fps
+scene.frame_start = 1
+scene.frame_end = fps * 4
+
+# --- Object: a rounded, glowing torus -------------------------------------
+bpy.ops.mesh.primitive_torus_add(
+    major_radius=1.0, minor_radius=0.38, major_segments=64, minor_segments=24
+)
+obj = bpy.context.active_object
+bpy.ops.object.shade_smooth()
+
+mat = bpy.data.materials.new("Glow")
+mat.use_nodes = True
+bsdf = mat.node_tree.nodes.get("Principled BSDF")
+if bsdf:
+    bsdf.inputs["Base Color"].default_value = (0.05, 0.35, 0.85, 1.0)
+    bsdf.inputs["Metallic"].default_value = 0.6
+    bsdf.inputs["Roughness"].default_value = 0.25
+    # Emission gives Eevee a self-lit look without extra lamps.
+    bsdf.inputs["Emission Color"].default_value = (0.1, 0.5, 1.0, 1.0)
+    bsdf.inputs["Emission Strength"].default_value = 1.5
+obj.data.materials.append(mat)
+
+# --- Animate: one full spin over the whole range (loops cleanly) ----------
+obj.rotation_euler = (math.radians(20), 0.0, 0.0)
+obj.keyframe_insert("rotation_euler", frame=scene.frame_start)
+obj.rotation_euler = (math.radians(20), 0.0, math.radians(360))
+obj.keyframe_insert("rotation_euler", frame=scene.frame_end)
+# Linear interpolation keeps the spin steady end-to-end.
+if obj.animation_data and obj.animation_data.action:
+    for fcurve in obj.animation_data.action.fcurves:
+        for kp in fcurve.keyframe_points:
+            kp.interpolation = "LINEAR"
+
+# --- Camera ----------------------------------------------------------------
+cam_data = bpy.data.cameras.new("Camera")
+cam = bpy.data.objects.new("Camera", cam_data)
+scene.collection.objects.link(cam)
+cam.location = (0.0, -4.5, 2.2)
+cam.rotation_euler = (math.radians(64), 0.0, 0.0)
+scene.camera = cam  # the runner renders through scene.camera
+
+# --- Light -----------------------------------------------------------------
+light_data = bpy.data.lights.new("Key", type="AREA")
+light_data.energy = 400.0
+light_data.size = 6.0
+light = bpy.data.objects.new("Key", light_data)
+scene.collection.objects.link(light)
+light.location = (3.0, -3.0, 5.0)
+
+# World background — a soft dark so the glow reads.
+world = scene.world or bpy.data.worlds.new("World")
+scene.world = world
+world.use_nodes = True
+bg = world.node_tree.nodes.get("Background")
+if bg:
+    bg.inputs["Color"].default_value = (0.02, 0.02, 0.03, 1.0)
+`;
+
+const blenderClaudeMd = `# Project conventions for the coder agent
+
+You are authoring a single Blender scene in \`scene.py\` in this directory. It
+runs headless inside Blender (via gaido's runner) and the result is captured as
+video — plus a GLB export of the same scene.
+
+## The contract
+
+- **You write \`scene.py\` only.** Use \`bpy\` to build the scene. It executes as
+  \`__main__\` inside Blender \`--background\`.
+- **The scene starts EMPTY** — no default cube, camera, or light. You MUST add
+  a camera and set \`scene.camera\`, and add at least one light (or use emissive
+  materials). No camera or no light → a black render.
+- **gaido presets defaults before your script runs**: \`resolution_x/y\`, \`fps\`,
+  and a frame range. Your script's \`scene.frame_start\` / \`scene.frame_end\` /
+  \`render.fps\` override them — that's how you control duration. Set the frame
+  range explicitly; derive length from \`scene.render.fps\` so it tracks the
+  configured fps.
+- **Do NOT call render or export operators.** No \`bpy.ops.render.render(...)\`,
+  no \`bpy.ops.export_scene.gltf(...)\`, no \`render.filepath\` /
+  \`image_settings\` changes. The runner owns rendering (Eevee), PNG→mp4
+  encoding, and the GLB export. Touching them will fight the runner.
+
+## Craft
+
+- Animate with keyframes, drivers, or modifiers — not by rendering a still.
+  Make the motion read within the clip and, where it makes sense, loop cleanly.
+- Renders on **Eevee** (real-time engine). Keep it performant: no heavy physics
+  or fluid/smoke bakes, reasonable poly counts, a handful of lights.
+- Compose deliberately: frame the subject, light it with intent, give the world
+  background a considered value. Emissive materials are a cheap, pretty way to
+  get glow in Eevee.
+- The starter builds a glowing torus with a camera and area light — replace it
+  wholesale to realize the brief; keep the camera + light discipline.
+`;
+
+const blenderSkeletonConfig = `import { defineSkeleton, blenderRenderer } from 'gaido';
+
+/**
+ * Blender preset overlay: routes nodes using this skeleton to the headless
+ * Blender renderer (Eevee → mp4, plus a GLB export) instead of the default
+ * browser renderer. Layers over gaido.config.ts for every node using this
+ * skeleton — see the default skeleton's gaido.skeleton.ts for merge rules.
+ */
+export default defineSkeleton({
+  renderer: blenderRenderer(),
+});
+`;
+
 /**
  * Each entry becomes a folder under `<projectDir>/skeletons/<name>/` at init.
  * The `default` entry is the seed for new roots when the user hasn't picked
@@ -394,6 +524,15 @@ export const skeletonCatalog: Record<string, SkeletonTemplate> = {
       'index.html': websiteIndexHtml,
       'CLAUDE.md': websiteClaudeMd,
       'gaido.skeleton.ts': websiteSkeletonConfig,
+    },
+  },
+  blender: {
+    description:
+      'Headless Blender (Eevee) — bpy scene → animation video + GLB export.',
+    files: {
+      'scene.py': blenderScenedPy,
+      'CLAUDE.md': blenderClaudeMd,
+      'gaido.skeleton.ts': blenderSkeletonConfig,
     },
   },
 };

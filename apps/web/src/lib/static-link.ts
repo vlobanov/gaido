@@ -48,13 +48,21 @@ function resolveQuery(path: string, input: any, snap: GaidoSnapshot): unknown {
     case 'nodes.get': {
       const node = snap.nodes.find((n) => n.id === input?.nodeId);
       if (!node) throw new Error(`node ${input?.nodeId}`);
+      const currentRun = node.currentRunId ? runById(snap, node.currentRunId) : null;
+      const outputId = currentRun?.outputArtifactId ?? null;
+      const outputArt = outputId
+        ? snap.artifacts.find((a) => a.id === outputId) ?? null
+        : null;
       return {
         node,
-        currentRun: node.currentRunId ? runById(snap, node.currentRunId) : null,
+        currentRun,
         retryable: false,
         hasSession: false,
         resolvedCoderName: node.resolvedCoderName,
         resolvedCoderKind: node.resolvedCoderKind,
+        currentRunOutput: outputArt
+          ? { artifactId: outputArt.id, kind: outputArt.kind, mime: outputArt.mime }
+          : null,
       };
     }
     case 'runs.get': {
@@ -125,6 +133,10 @@ function listRow(n: SnapshotNode, snap: GaidoSnapshot) {
     updatedAt: n.updatedAt,
     thumbnailArtifactId: run?.thumbnailArtifactId ?? null,
     videoArtifactId: run?.videoArtifactId ?? null,
+    // Older snapshots (pre output generalization) lack the key entirely.
+    outputArtifactId: run?.outputArtifactId ?? null,
+    outputKind:
+      snap.artifacts.find((a) => a.id === run?.outputArtifactId)?.kind ?? null,
     previewUrl: run?.previewUrl ?? null,
     message: run?.message ?? null,
     codingStartedAt: run?.codingStartedAt ?? null,

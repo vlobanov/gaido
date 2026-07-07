@@ -12,7 +12,9 @@ import {
 import type { Run, Node } from '@vadimlobanov/gaido-core/schema';
 import type {
   AdapterConfigSnapshot,
+  ArtifactKind,
   Coder,
+  CriticMedia,
   Critique,
   GaidoConfig,
   Logger,
@@ -719,12 +721,23 @@ export class Orchestrator {
       const outputDir = path.join(this.paths.artifactsDir, canvasSlug, runId);
       fs.mkdirSync(outputDir, { recursive: true });
 
+      // Per-run render params: the config's values are the defaults, and a
+      // `gaido.render.json` the coder dropped in the worktree overrides them —
+      // so a piece that wants 12 seconds isn't padded/cut to the project's 5.
+      const render = applyRenderManifest(cfg.render, workdir, (message) =>
+        this.eventBus.publish(runId, node.canvasId, {
+          kind: 'log',
+          level: 'info',
+          message,
+        })
+      );
+
       const result = await cfg.renderer.render(
         {
-          duration: cfg.render.duration,
-          fps: cfg.render.fps,
-          width: cfg.render.width,
-          height: cfg.render.height,
+          duration: render.duration,
+          fps: render.fps,
+          width: render.width,
+          height: render.height,
         },
         {
           nodeId,
@@ -741,16 +754,35 @@ export class Orchestrator {
         }
       );
 
-      if (result.videoPath) {
-        this.recordArtifact(runId, 'video', result.videoPath, 'video/mp4');
+      // Record outputs in display order — the first is the run's primary
+      // (what the sidebar shows). The first *video* output is also pinned to
+      // `videoArtifactId`: critics and reference keyframes consume pixels, so
+      // they read the video even when the primary output is a model or page.
+      const pointers: Partial<typeof schema.runs.$inferInsert> = {};
+      for (const output of result.outputs) {
+        const artifactId = this.recordArtifact(
+          runId,
+          output.kind,
+          output.path,
+          output.mime ?? mimeFromPath(output.path)
+        );
+        pointers.outputArtifactId ??= artifactId;
+        if (output.kind === 'video') pointers.videoArtifactId ??= artifactId;
       }
       if (result.thumbnailPath) {
-        this.recordArtifact(
+        pointers.thumbnailArtifactId = this.recordArtifact(
           runId,
           'thumbnail',
           result.thumbnailPath,
           mimeFromPath(result.thumbnailPath)
         );
+      }
+      if (Object.keys(pointers).length > 0) {
+        this.db
+          .update(schema.runs)
+          .set({ ...pointers, updatedAt: Date.now() })
+          .where(eq(schema.runs.id, runId))
+          .run();
       }
       // previewUrl precedence: an explicit project mapping
       // (previewServer.publicUrl) wins, then a renderer-supplied URL (e.g. the
@@ -848,16 +880,14 @@ export class Orchestrator {
       .from(schema.runs)
       .where(eq(schema.runs.id, parent.currentRunId))
       .get();
-    if (!parentRun || !parentRun.videoArtifactId) {
-      throw new Error('parent coder has no rendered video to evaluate');
-    }
-    const videoArtifact = this.db
-      .select()
-      .from(schema.artifacts)
-      .where(eq(schema.artifacts.id, parentRun.videoArtifactId))
-      .get();
-    if (!videoArtifact) {
-      throw new Error('parent video artifact row missing');
+    // Critics judge pixels. Prefer the run's video; fall back to a still
+    // image primary output. Runs whose primary output is a model or page are
+    // expected to render a video alongside it for exactly this purpose.
+    const media = this.resolveCriticMedia(parentRun ?? null);
+    if (!media) {
+      throw new Error(
+        'parent coder has no rendered output (video or image) to evaluate'
+      );
     }
 
     const canvasSlug = this.resolveCanvasSlug(node.canvasId);
@@ -867,7 +897,7 @@ export class Orchestrator {
       const codePath = this.workspace.workspacePath({ nodeId: parent.id, canvasSlug });
       const result = await cfg.critic.critique(
         {
-          videoPath: videoArtifact.path,
+          media,
           codePath,
           prompt: parent.instruction,
         },
@@ -899,6 +929,32 @@ export class Orchestrator {
 
     this.setRunStatus(runId, nodeId, 'done', critique ? { critique } : {});
     this.advanceAutoRunAfterCritique(nodeId);
+  }
+
+  /**
+   * The rendered media a critique of `parentRun` should evaluate: the run's
+   * video when it has one, else its primary output if that is a still image.
+   * Null when the run produced nothing a pixel-reading critic can judge.
+   */
+  private resolveCriticMedia(parentRun: Run | null): CriticMedia | null {
+    if (!parentRun) return null;
+    if (parentRun.videoArtifactId) {
+      const video = this.db
+        .select()
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, parentRun.videoArtifactId))
+        .get();
+      if (video) return { kind: 'video', path: video.path };
+    }
+    if (parentRun.outputArtifactId) {
+      const output = this.db
+        .select()
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, parentRun.outputArtifactId))
+        .get();
+      if (output?.kind === 'image') return { kind: 'image', path: output.path };
+    }
+    return null;
   }
 
   private resolveCanvasSlug(canvasId: string): string {
@@ -1397,15 +1453,19 @@ export class Orchestrator {
     return row?.artistFollowUp ?? null;
   }
 
+  /**
+   * Insert an artifact row and return its id. Pure record — pointing run
+   * columns (`outputArtifactId` / `videoArtifactId` / …) at it is the
+   * caller's decision, since which pointer applies depends on output order.
+   */
   private recordArtifact(
     runId: string,
-    kind: 'code' | 'video' | 'thumbnail' | 'frame' | 'log',
+    kind: ArtifactKind,
     filePath: string,
     mime: string
-  ): void {
+  ): string {
     const id = newArtifactId();
     const stat = fs.statSync(filePath);
-    const now = Date.now();
     this.db
       .insert(schema.artifacts)
       .values({
@@ -1415,18 +1475,10 @@ export class Orchestrator {
         path: filePath,
         mime,
         sizeBytes: stat.size,
-        createdAt: now,
+        createdAt: Date.now(),
       })
       .run();
-    const update: Partial<typeof schema.runs.$inferInsert> = { updatedAt: now };
-    if (kind === 'video') update.videoArtifactId = id;
-    else if (kind === 'thumbnail') update.thumbnailArtifactId = id;
-    else if (kind === 'code') update.codeArtifactId = id;
-    this.db
-      .update(schema.runs)
-      .set(update)
-      .where(eq(schema.runs.id, runId))
-      .run();
+    return id;
   }
 }
 
@@ -1448,9 +1500,83 @@ function mimeFromPath(filePath: string): string {
       return 'video/mp4';
     case '.webm':
       return 'video/webm';
+    case '.glb':
+      return 'model/gltf-binary';
+    case '.gltf':
+      return 'model/gltf+json';
+    case '.html':
+    case '.htm':
+      return 'text/html; charset=utf-8';
     default:
       return 'application/octet-stream';
   }
+}
+
+/** Worktree file a coder writes to override the project's render params. */
+const RENDER_MANIFEST_FILENAME = 'gaido.render.json';
+
+interface RenderParams {
+  width: number;
+  height: number;
+  fps: number;
+  duration: number;
+}
+
+/**
+ * Overlay the worktree's `gaido.render.json` (if any) onto the configured
+ * render params. The manifest is coder-authored per piece — duration is the
+ * headline use ("this loop is 12 seconds, don't cut it at 5") but fps and
+ * canvas size can ride too. Values are clamped to sane bounds rather than
+ * trusted blindly, and a malformed file is reported + ignored so a typo can't
+ * fail the render phase. Committed with the diff like any other worktree
+ * file, so forks inherit it and history explains it.
+ */
+function applyRenderManifest(
+  base: RenderParams,
+  workdir: string,
+  log: (message: string) => void
+): RenderParams {
+  const file = path.join(workdir, RENDER_MANIFEST_FILENAME);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return base; // no manifest — the common case
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    log(`${RENDER_MANIFEST_FILENAME} is not valid JSON — ignoring it`);
+    return base;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    log(`${RENDER_MANIFEST_FILENAME} must be a JSON object — ignoring it`);
+    return base;
+  }
+  const manifest = parsed as Record<string, unknown>;
+  const out = { ...base };
+  const applied: string[] = [];
+  const take = (
+    key: keyof RenderParams,
+    min: number,
+    max: number,
+    round: boolean
+  ) => {
+    const value = manifest[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) return;
+    const clamped = Math.min(max, Math.max(min, round ? Math.round(value) : value));
+    out[key] = clamped;
+    applied.push(`${key}=${clamped}${clamped !== value ? ` (clamped from ${value})` : ''}`);
+  };
+  take('duration', 0.5, 120, false);
+  take('fps', 1, 60, true);
+  take('width', 16, 4096, true);
+  take('height', 16, 4096, true);
+  if (applied.length > 0) {
+    log(`${RENDER_MANIFEST_FILENAME}: ${applied.join(', ')}`);
+  }
+  return out;
 }
 
 function phaseStartColumn(phase: RunPhase, ts: number) {

@@ -282,7 +282,7 @@ async function doRender(
   fs.rmSync(framesDir, { recursive: true, force: true });
 
   return {
-    videoPath,
+    outputs: [{ kind: 'video', path: videoPath, mime: 'video/mp4' }],
     thumbnailPath,
     durationMs: Date.now() - startedAt,
   };

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type {
+  ArtifactKind,
   CoderMessage,
   EventPayload,
   NodeStatus,
@@ -36,6 +37,12 @@ export interface CoderCardData extends PhaseTiming {
   autoRunRemaining: number | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  /**
+   * Primary output kind of the current run (video / image / model / page), or
+   * null for legacy/no-output runs. Lets the frame label a non-video render so
+   * a model or page node doesn't read as a video.
+   */
+  outputKind: ArtifactKind | null;
   previewUrl: string | null;
   /**
    * Coder's MESSAGE.md output, if any. Present iff the current run carried
@@ -127,6 +134,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         status={d.status}
         thumbnailArtifactId={d.thumbnailArtifactId}
         videoArtifactId={d.videoArtifactId}
+        outputKind={d.outputKind}
         currentRunId={d.currentRunId}
       />
 
@@ -252,15 +260,25 @@ function MessageOnlyCard({
   );
 }
 
+// The three non-video output kinds worth marking on the card frame; a video
+// render (or legacy null) shows no marker — the moving still reads as video.
+const OUTPUT_KIND_MARK: Partial<Record<ArtifactKind, string>> = {
+  image: 'Image',
+  model: '3D',
+  page: 'Page',
+};
+
 function Frame({
   status,
   thumbnailArtifactId,
   videoArtifactId,
+  outputKind,
   currentRunId,
 }: {
   status: NodeStatus;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  outputKind: ArtifactKind | null;
   currentRunId: string | null;
 }) {
   const failed = FAILED_LIKE.has(status);
@@ -273,6 +291,7 @@ function Frame({
       <DoneFrame
         thumbnailArtifactId={thumbnailArtifactId}
         videoArtifactId={videoArtifactId}
+        mark={outputKind ? OUTPUT_KIND_MARK[outputKind] ?? null : null}
       />
     );
   }
@@ -295,12 +314,25 @@ function Frame({
   );
 }
 
+function KindMark({ label }: { label: string }) {
+  return (
+    <span
+      data-testid="node-output-kind"
+      className="absolute left-2 top-2 z-10 border border-hairline-deep bg-paper/90 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-caps text-ink-muted"
+    >
+      {label}
+    </span>
+  );
+}
+
 function DoneFrame({
   thumbnailArtifactId,
   videoArtifactId,
+  mark,
 }: {
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  mark: string | null;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -311,6 +343,7 @@ function DoneFrame({
   if (!videoUrl) {
     return (
       <div className="relative aspect-square w-full overflow-hidden">
+        {mark ? <KindMark label={mark} /> : null}
         {thumbUrl ? (
           <img
             src={thumbUrl}
@@ -337,6 +370,7 @@ function DoneFrame({
         v.currentTime = 0;
       }}
     >
+      {mark ? <KindMark label={mark} /> : null}
       <video
         ref={ref}
         src={videoUrl}

@@ -1,4 +1,4 @@
-import type { Critique } from './types.js';
+import type { Critique, OutputKind } from './types.js';
 import type { EventPayload } from './events.js';
 
 export interface Logger {
@@ -67,6 +67,13 @@ export interface Coder {
 }
 
 export interface RenderInput {
+  /**
+   * Requested media duration in seconds. A *default*, not a mandate: the
+   * orchestrator already folds in the worktree's `gaido.render.json` override,
+   * and a renderer whose source carries its own intrinsic length (e.g. a
+   * Blender scene's frame range) should trust that and may produce a video of
+   * a different duration.
+   */
   duration: number;
   fps: number;
   width: number;
@@ -75,9 +82,22 @@ export interface RenderInput {
   resumeHint?: unknown;
 }
 
+/** One file a render produced, typed by how it should be presented. */
+export interface RenderOutput {
+  kind: OutputKind;
+  path: string;
+  /** Optional; inferred from the file extension when omitted. */
+  mime?: string;
+}
+
 export interface RenderResult {
-  /** Path to the encoded video file, or null if no video was produced. */
-  videoPath: string | null;
+  /**
+   * Everything the render produced, in display order — the first entry is the
+   * run's primary output (what the sidebar shows by default). A renderer may
+   * emit several (e.g. Blender: a GLB model plus the encoded animation video).
+   * Empty when nothing was produced.
+   */
+  outputs: RenderOutput[];
   /** Path to a still-frame thumbnail image, or null if none. */
   thumbnailPath: string | null;
   /** Actual render wall-clock duration in milliseconds. */
@@ -93,15 +113,27 @@ export interface RenderResult {
 export interface Renderer {
   readonly kind: string;
   /**
-   * Read the page source from `ctx.workdir` (typically `index.html`) and
-   * write video + thumbnail into `ctx.outputDir`. The orchestrator inserts
-   * artifact rows from the returned paths.
+   * Read the source from `ctx.workdir` (typically `index.html`, or whatever
+   * the renderer's skeleton establishes) and write outputs + thumbnail into
+   * `ctx.outputDir`. The orchestrator inserts artifact rows from the returned
+   * paths.
    */
   render(input: RenderInput, ctx: RunContext): Promise<RenderResult>;
 }
 
+/**
+ * The rendered media a critic evaluates. Video is the norm; `image` covers
+ * renderers that produce stills. Critics that can only judge pixels receive
+ * whichever the parent run produced — a run whose only output is a 3D model
+ * still renders a video alongside it for exactly this reason.
+ */
+export interface CriticMedia {
+  kind: 'video' | 'image';
+  path: string;
+}
+
 export interface CriticInput {
-  videoPath: string;
+  media: CriticMedia;
   codePath: string;
   prompt: string;
 }

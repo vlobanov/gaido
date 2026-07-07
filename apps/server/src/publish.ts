@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { eq, inArray } from 'drizzle-orm';
 import { AwsClient } from 'aws4fetch';
 import { schema } from '@vadimlobanov/gaido-core';
-import type { PublishConfig } from '@vadimlobanov/gaido-core';
+import type { ArtifactKind, PublishConfig } from '@vadimlobanov/gaido-core';
 import { resolvePaths, type Paths } from './paths.js';
 import { loadEnv } from './env-loader.js';
 import { loadConfig, type ResolvedConfig } from './config-loader.js';
@@ -25,6 +25,15 @@ import { buildCanvasSnapshot } from './snapshot.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 const PAGE_CACHE = 'public, max-age=60, must-revalidate';
+
+/** Artifact kinds whose bytes ride a publish: every output kind + thumbnails. */
+const DISPLAYED_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  'video',
+  'image',
+  'model',
+  'page',
+  'thumbnail',
+]);
 
 export interface PublishOptions {
   cwd?: string;
@@ -235,7 +244,10 @@ async function buildBundle(args: {
         .from(schema.artifacts)
         .where(inArray(schema.artifacts.runId, runIds))
         .all()
-        .filter((a) => a.kind === 'video' || a.kind === 'thumbnail')
+        // Every output kind (video / image / model / page) + thumbnails — the
+        // media a run's output/video/thumbnail pointers reference. Mirrors the
+        // snapshot's DISPLAYED_ARTIFACT_KINDS.
+        .filter((a) => DISPLAYED_ARTIFACT_KINDS.has(a.kind))
     : [];
   const imageRefRows = nodeIds.length
     ? db
@@ -625,6 +637,8 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.txt': 'text/plain; charset=utf-8',

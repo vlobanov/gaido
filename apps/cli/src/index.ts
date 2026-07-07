@@ -26,6 +26,8 @@ export type {
   PlaywrightRendererOpts,
   PlaywrightRecordRendererOpts,
 } from '@vadimlobanov/gaido-adapter-playwright-renderer';
+export { blenderRenderer } from '@vadimlobanov/gaido-adapter-blender';
+export type { BlenderRendererOpts } from '@vadimlobanov/gaido-adapter-blender';
 export { geminiCritic } from '@vadimlobanov/gaido-adapter-openrouter';
 export type { GeminiCriticOpts } from '@vadimlobanov/gaido-adapter-openrouter';
 export type {

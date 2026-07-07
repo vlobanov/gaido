@@ -98,19 +98,20 @@ async function critiqueWithGemini(
       'OPENROUTER_API_KEY is not set. Add it to <projectDir>/.env or ~/.gaido/.env, or pass { apiKey } to geminiCritic().'
     );
   }
-  if (!fs.existsSync(input.videoPath)) {
-    throw new Error(`geminiCritic: video not found at ${input.videoPath}`);
+  const { kind: mediaKind, path: mediaPath } = input.media;
+  if (!fs.existsSync(mediaPath)) {
+    throw new Error(`geminiCritic: ${mediaKind} not found at ${mediaPath}`);
   }
 
-  const videoBytes = fs.readFileSync(input.videoPath);
-  const mime = mimeFromPath(input.videoPath);
-  const dataUrl = `data:${mime};base64,${videoBytes.toString('base64')}`;
+  const mediaBytes = fs.readFileSync(mediaPath);
+  const mime = mimeFromPath(mediaPath);
+  const dataUrl = `data:${mime};base64,${mediaBytes.toString('base64')}`;
   ctx.logger.info(
-    `[gemini-critic] sending ${(videoBytes.length / 1024).toFixed(1)} KiB to ${cfg.model}`
+    `[gemini-critic] sending ${(mediaBytes.length / 1024).toFixed(1)} KiB ${mediaKind} to ${cfg.model}`
   );
 
   const logFile = path.join(ctx.logDir, 'critic.openrouter.log');
-  // Snapshot the request shape for postmortem inspection. The video data URL
+  // Snapshot the request shape for postmortem inspection. The media data URL
   // is redacted (would be MBs of base64) — its byte size goes in instead.
   appendSilent(
     logFile,
@@ -120,28 +121,31 @@ async function critiqueWithGemini(
       providerOrder: cfg.providerOrder,
       allowFallbacks: cfg.allowFallbacks,
       promptLen: input.prompt.length,
-      videoBytes: videoBytes.length,
-      videoMime: mime,
+      mediaKind,
+      mediaBytes: mediaBytes.length,
+      mediaMime: mime,
       mediaResolution: cfg.mediaResolution,
     })
   );
 
+  // Video rides a `video_url` part; a still render rides an `image_url` part.
+  const mediaPart =
+    mediaKind === 'image'
+      ? { type: 'image_url', image_url: { url: dataUrl } }
+      : { type: 'video_url', video_url: { url: dataUrl } };
   const body: Record<string, unknown> = {
     model: cfg.model,
     messages: [
       {
         role: 'user',
         content: [
-          { type: 'text', text: buildPrompt(input.prompt) },
-          { type: 'video_url', video_url: { url: dataUrl } },
+          { type: 'text', text: buildPrompt(input.prompt, mediaKind) },
+          mediaPart,
         ],
       },
     ],
     response_format: { type: 'json_object' },
   };
-  if (cfg.mediaResolution) {
-    body.media_resolution = MEDIA_RESOLUTION_ENUM[cfg.mediaResolution];
-  }
   if (cfg.providerOrder && cfg.providerOrder.length > 0) {
     body.provider = {
       order: cfg.providerOrder,
@@ -149,43 +153,68 @@ async function critiqueWithGemini(
     };
   }
 
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), cfg.timeoutMs);
-  const onUserAbort = () => ac.abort();
-  ctx.abortSignal.addEventListener('abort', onUserAbort, { once: true });
-
-  let res: Response;
-  try {
-    res = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      signal: ac.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': cfg.httpReferer,
-        'X-Title': cfg.appTitle,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    if (ctx.abortSignal.aborted) throw makeAbortError();
-    if ((err as Error).name === 'AbortError') {
-      throw new Error(
-        `OpenRouter request timed out after ${cfg.timeoutMs}ms`
-      );
+  const postOnce = async (): Promise<Response> => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), cfg.timeoutMs);
+    const onUserAbort = () => ac.abort();
+    ctx.abortSignal.addEventListener('abort', onUserAbort, { once: true });
+    try {
+      return await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        signal: ac.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          'HTTP-Referer': cfg.httpReferer,
+          'X-Title': cfg.appTitle,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      if (ctx.abortSignal.aborted) throw makeAbortError();
+      if ((err as Error).name === 'AbortError') {
+        throw new Error(
+          `OpenRouter request timed out after ${cfg.timeoutMs}ms`
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      ctx.abortSignal.removeEventListener('abort', onUserAbort);
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-    ctx.abortSignal.removeEventListener('abort', onUserAbort);
-  }
+  };
 
-  if (!res.ok) {
+  // Send at the configured media resolution; if the provider rejects that
+  // specifically (Google started 400ing MEDIA_RESOLUTION_HIGH for video — it
+  // now allows HIGH only for single images), downgrade one notch to MEDIUM and
+  // retry once. A coarser critique beats a dead one, and images keep HIGH.
+  let attemptResolution = cfg.mediaResolution;
+  let res: Response;
+  for (;;) {
+    if (attemptResolution) {
+      body.media_resolution = MEDIA_RESOLUTION_ENUM[attemptResolution];
+    } else {
+      delete body.media_resolution;
+    }
+    res = await postOnce();
+    if (res.ok) break;
     const text = await res.text().catch(() => '');
     appendSilent(
       logFile,
       formatLogBlock('ERROR', { status: res.status, statusText: res.statusText, body: text })
     );
+    if (
+      res.status === 400 &&
+      attemptResolution &&
+      attemptResolution !== 'medium' &&
+      /media.?resolution/i.test(text)
+    ) {
+      ctx.logger.warn(
+        `[gemini-critic] provider rejected media_resolution=${attemptResolution} — retrying at medium`
+      );
+      attemptResolution = 'medium';
+      continue;
+    }
     throw new Error(
       `OpenRouter responded ${res.status} ${res.statusText}: ${text.slice(0, 600)}`
     );
@@ -236,14 +265,25 @@ async function critiqueWithGemini(
   };
 }
 
-function buildPrompt(originalInstruction: string): string {
+function buildPrompt(
+  originalInstruction: string,
+  mediaKind: 'video' | 'image'
+): string {
+  const framing =
+    mediaKind === 'image'
+      ? `You are a senior visual artist reviewing a generated still image render.`
+      : `You are a senior visual artist reviewing a generated animation video.`;
+  const watch =
+    mediaKind === 'image'
+      ? `Look at the attached image and evaluate the result holistically: composition, color, how well it satisfies the instruction.`
+      : `Watch the attached video and evaluate the result holistically: composition, motion, color, how well it satisfies the instruction.`;
   return [
-    `You are a senior visual artist reviewing a generated animation video.`,
+    framing,
     ``,
     `Original creative instruction:`,
     `"${originalInstruction.trim()}"`,
     ``,
-    `Watch the attached video and evaluate the result holistically: composition, motion, color, how well it satisfies the instruction.`,
+    watch,
     ``,
     `Respond with ONE JSON object, no prose, no markdown fences. Schema:`,
     `{`,
@@ -362,6 +402,15 @@ function mimeFromPath(p: string): string {
     case '.mpeg':
     case '.mpg':
       return 'video/mpeg';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
     default:
       return 'video/mp4';
   }

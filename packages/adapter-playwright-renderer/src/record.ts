@@ -200,7 +200,7 @@ async function doRender(
     });
 
     return {
-      videoPath,
+      outputs: [{ kind: 'video', path: videoPath, mime: 'video/mp4' }],
       thumbnailPath,
       durationMs: Date.now() - startedAt,
       previewUrl: url,

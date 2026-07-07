@@ -78,6 +78,13 @@
       "when": 1782677585385,
       "tag": "0010_luxuriant_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783428510322,
+      "tag": "0011_yummy_klaw",
+      "breakpoints": true
     }
   ]
 }

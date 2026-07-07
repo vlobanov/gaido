@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import '@google/model-viewer';
 import type {
+  ArtifactKind,
   CoderMessage,
   CoderMessageKind,
   EventPayload,
@@ -212,6 +214,7 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
         {currentRun?.message && !currentRun.message.producedArtifact ? null : (
           <Section label="Output">
             <OutputPanel
+              output={nodeQuery.data?.currentRunOutput ?? null}
               videoArtifactId={currentRun?.videoArtifactId ?? null}
               thumbnailArtifactId={currentRun?.thumbnailArtifactId ?? null}
               previewUrl={currentRun?.previewUrl ?? null}
@@ -1063,42 +1066,93 @@ function FavoriteToggle({
   );
 }
 
+interface RunOutput {
+  artifactId: string;
+  kind: ArtifactKind;
+  mime: string;
+}
+
+/** The four presentable output kinds — the rest of ArtifactKind never surfaces here. */
+const OUTPUT_KINDS = ['video', 'image', 'model', 'page'] as const;
+type OutputMode = (typeof OUTPUT_KINDS)[number];
+
+function isOutputMode(kind: ArtifactKind): kind is OutputMode {
+  return (OUTPUT_KINDS as readonly string[]).includes(kind);
+}
+
+const MODE_LABEL: Record<OutputMode, string> = {
+  video: 'Video',
+  image: 'Image',
+  model: '3D',
+  page: 'Page',
+};
+
 function OutputPanel({
+  output,
   videoArtifactId,
   thumbnailArtifactId,
   previewUrl,
 }: {
+  output: RunOutput | null;
   videoArtifactId: string | null;
   thumbnailArtifactId: string | null;
   previewUrl: string | null;
 }) {
-  const media = videoArtifactId ? (
-    <video
-      data-testid="output-video"
-      className="aspect-square w-full border border-hairline bg-paper-deep"
-      src={artifactUrl(videoArtifactId)}
-      poster={thumbnailArtifactId ? artifactUrl(thumbnailArtifactId) : undefined}
-      controls
-      loop
-      muted
-      playsInline
-    />
-  ) : thumbnailArtifactId ? (
-    <img
-      data-testid="output-thumbnail"
-      className="aspect-square w-full border border-hairline bg-paper-deep object-contain"
-      src={artifactUrl(thumbnailArtifactId)}
-      alt="Render thumbnail"
-    />
-  ) : (
-    <div className="flex aspect-square w-full items-center justify-center bg-hatch font-mono text-xs uppercase tracking-caps text-ink-faint">
-      No render yet
-    </div>
-  );
+  // Primary presentation. A typed output row picks it; legacy runs (no row)
+  // fall back to the video pointer, matching the pre-typed-output behavior.
+  const primaryMode: OutputMode | null =
+    output && isOutputMode(output.kind)
+      ? output.kind
+      : videoArtifactId
+        ? 'video'
+        : null;
+
+  // A model/page/image render usually also has a video (the critic watches
+  // it) — offer a toggle to flip to it.
+  const hasVideoAlt =
+    primaryMode != null && primaryMode !== 'video' && videoArtifactId != null;
+
+  const [mode, setMode] = useState<OutputMode>(primaryMode ?? 'video');
+  // Re-sync the active mode whenever the node/run underneath changes.
+  useEffect(() => {
+    setMode(primaryMode ?? 'video');
+  }, [primaryMode, output?.artifactId, videoArtifactId]);
+
+  const view = hasVideoAlt ? mode : primaryMode ?? 'video';
+  const poster = thumbnailArtifactId ? artifactUrl(thumbnailArtifactId) : undefined;
 
   return (
     <div className="flex flex-col gap-3">
-      {media}
+      {hasVideoAlt ? (
+        <div className="flex items-stretch gap-2">
+          {([primaryMode as OutputMode, 'video'] as OutputMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              data-testid={`output-mode-${m}`}
+              aria-pressed={mode === m}
+              className={`border px-3 py-1 font-mono text-[10px] uppercase tracking-caps transition-colors ${
+                mode === m
+                  ? 'border-hairline-deep bg-paper-deep text-ink'
+                  : 'border-hairline bg-paper text-ink-muted hover:bg-paper-deep'
+              }`}
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <OutputMedia
+        view={view}
+        output={output}
+        videoArtifactId={videoArtifactId}
+        thumbnailArtifactId={thumbnailArtifactId}
+        previewUrl={previewUrl}
+        poster={poster}
+      />
+
       {previewUrl ? (
         <a
           href={previewUrl}
@@ -1110,6 +1164,90 @@ function OutputPanel({
           Open live preview →
         </a>
       ) : null}
+    </div>
+  );
+}
+
+function OutputMedia({
+  view,
+  output,
+  videoArtifactId,
+  thumbnailArtifactId,
+  previewUrl,
+  poster,
+}: {
+  view: OutputMode;
+  output: RunOutput | null;
+  videoArtifactId: string | null;
+  thumbnailArtifactId: string | null;
+  previewUrl: string | null;
+  poster: string | undefined;
+}) {
+  const frame = 'aspect-square w-full border border-hairline bg-paper-deep';
+
+  if (view === 'video' && videoArtifactId) {
+    return (
+      <video
+        data-testid="output-video"
+        className={frame}
+        src={artifactUrl(videoArtifactId)}
+        poster={poster}
+        controls
+        loop
+        muted
+        playsInline
+      />
+    );
+  }
+
+  if (view === 'image' && output) {
+    return (
+      <img
+        data-testid="output-image"
+        className={`${frame} object-contain`}
+        src={artifactUrl(output.artifactId)}
+        alt="Render output"
+      />
+    );
+  }
+
+  if (view === 'model' && output) {
+    return (
+      <model-viewer
+        data-testid="output-model"
+        className={frame}
+        src={artifactUrl(output.artifactId)}
+        poster={poster}
+        camera-controls
+        autoplay
+        alt="3D render output"
+      />
+    );
+  }
+
+  if (view === 'page' && previewUrl) {
+    return (
+      <iframe
+        data-testid="output-page"
+        className={frame}
+        src={previewUrl}
+        title="Page render output"
+        sandbox="allow-scripts allow-same-origin"
+      />
+    );
+  }
+
+  // Fallbacks: a still thumbnail, else a placeholder.
+  return thumbnailArtifactId ? (
+    <img
+      data-testid="output-thumbnail"
+      className={`${frame} object-contain`}
+      src={artifactUrl(thumbnailArtifactId)}
+      alt="Render thumbnail"
+    />
+  ) : (
+    <div className="flex aspect-square w-full items-center justify-center bg-hatch font-mono text-xs uppercase tracking-caps text-ink-faint">
+      No render yet
     </div>
   );
 }

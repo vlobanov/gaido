@@ -22,7 +22,21 @@ export type NodeKind = 'coder' | 'critique' | 'config' | 'instruction';
  */
 export type SessionPolicy = 'retain' | 'reset';
 
-export type ArtifactKind = 'code' | 'video' | 'thumbnail' | 'frame' | 'log';
+/**
+ * What a renderer's output *is*, which decides how the UI presents it:
+ * - `video` — mp4/webm, plays in a `<video>` element (the classic case).
+ * - `image` — a still; shown as an `<img>`.
+ * - `model` — a 3D scene (GLB/GLTF); shown in an interactive 3D viewer.
+ * - `page`  — a self-contained HTML page; embedded via the run's live preview.
+ */
+export type OutputKind = 'video' | 'image' | 'model' | 'page';
+
+export type ArtifactKind =
+  | 'code'
+  | 'thumbnail'
+  | 'frame'
+  | 'log'
+  | OutputKind;
 
 export type RunPhase = 'coding' | 'rendering' | 'critiquing';
 

@@ -107,6 +107,15 @@ export const runs = sqliteTable(
     critiquingFinishedAt: integer('critiquing_finished_at'),
     configSnapshot: text('config_snapshot', { mode: 'json' }).$type<AdapterConfigSnapshot>().notNull(),
     codeArtifactId: text('code_artifact_id'),
+    /**
+     * The run's primary output — the first entry of the renderer's `outputs`,
+     * whatever its kind (video / image / model / page). What the UI displays.
+     * `videoArtifactId` stays alongside as the *video* pointer specifically:
+     * the critic and reference keyframes consume pixels, so they read the
+     * video even when the primary output is a model or page. For classic
+     * video-only renders the two point at the same artifact.
+     */
+    outputArtifactId: text('output_artifact_id'),
     videoArtifactId: text('video_artifact_id'),
     thumbnailArtifactId: text('thumbnail_artifact_id'),
     previewUrl: text('preview_url'),

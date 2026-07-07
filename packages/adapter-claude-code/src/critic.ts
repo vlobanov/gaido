@@ -96,22 +96,32 @@ async function critiqueWithClaudeCode(
     path.join(os.tmpdir(), `gaido-critic-${ctx.runId}-`)
   );
   try {
-    const frames = await extractFrames({
-      ffmpegBin: cfg.ffmpegBin,
-      videoPath: input.videoPath,
-      outDir: stageDir,
-      frameCount: cfg.frameCount,
-      logger: ctx.logger,
-      abortSignal: ctx.abortSignal,
-      logFile: path.join(ctx.logDir, 'critic.ffmpeg.log'),
-    });
+    // Video → sample N keyframes with ffmpeg. Image → copy the single still
+    // into the stage dir and hand it over directly, no ffmpeg. Both leave the
+    // frames as files the Read tool picks up by basename in cwd=stageDir.
+    let frames: string[];
+    if (input.media.kind === 'image') {
+      const dest = path.join(stageDir, path.basename(input.media.path));
+      fs.copyFileSync(input.media.path, dest);
+      frames = [dest];
+    } else {
+      frames = await extractFrames({
+        ffmpegBin: cfg.ffmpegBin,
+        videoPath: input.media.path,
+        outDir: stageDir,
+        frameCount: cfg.frameCount,
+        logger: ctx.logger,
+        abortSignal: ctx.abortSignal,
+        logFile: path.join(ctx.logDir, 'critic.ffmpeg.log'),
+      });
+    }
     if (ctx.abortSignal.aborted) throw makeAbortError();
 
     ctx.logger.info(
-      `[claude-critic] extracted ${frames.length} frame(s) → ${stageDir}`
+      `[claude-critic] staged ${frames.length} ${input.media.kind} frame(s) → ${stageDir}`
     );
 
-    const prompt = buildPrompt(cfg, input.prompt, frames);
+    const prompt = buildPrompt(cfg, input.prompt, input.media.kind, frames);
     const text = await runClaude(cfg, prompt, stageDir, ctx);
     if (ctx.abortSignal.aborted) throw makeAbortError();
 
@@ -125,16 +135,21 @@ async function critiqueWithClaudeCode(
 function buildPrompt(
   cfg: Pick<ResolvedCfg, 'persona' | 'criteria'>,
   originalInstruction: string,
+  mediaKind: 'video' | 'image',
   frames: string[]
 ): string {
   const list = frames.map((f, i) => `  ${i + 1}. ${path.basename(f)}`).join('\n');
+  const lookInstruction =
+    mediaKind === 'image'
+      ? `Use the Read tool to look at this still image render:`
+      : `Use the Read tool to look at each of these keyframes from the rendered video, in order:`;
   return [
     cfg.persona,
     ``,
     `Original creative instruction:`,
     `"${originalInstruction.trim()}"`,
     ``,
-    `Use the Read tool to look at each of these keyframes from the rendered video, in order:`,
+    lookInstruction,
     list,
     ``,
     `Then evaluate the result holistically: ${cfg.criteria}.`,

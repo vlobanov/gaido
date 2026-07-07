@@ -9,7 +9,12 @@ import {
   type NodeMouseHandler,
   type NodeTypes,
 } from '@xyflow/react';
-import type { CoderMessage, NodeKind, NodeStatus } from '@vadimlobanov/gaido-core';
+import type {
+  ArtifactKind,
+  CoderMessage,
+  NodeKind,
+  NodeStatus,
+} from '@vadimlobanov/gaido-core';
 import type { SessionPolicy } from '@vadimlobanov/gaido-core';
 import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
@@ -35,6 +40,8 @@ interface GaidoNode {
   autoRunRemaining: number | null;
   thumbnailArtifactId: string | null;
   videoArtifactId: string | null;
+  outputArtifactId: string | null;
+  outputKind: ArtifactKind | null;
   previewUrl: string | null;
   message: CoderMessage | null;
   codingStartedAt: number | null;
@@ -138,6 +145,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
         autoRunRemaining: n.autoRunRemaining,
         thumbnailArtifactId: n.thumbnailArtifactId,
         videoArtifactId: n.videoArtifactId,
+        outputKind: n.outputKind,
         previewUrl: n.previewUrl,
         message: n.kind === 'coder' ? n.message ?? null : null,
         codingStartedAt: n.codingStartedAt,

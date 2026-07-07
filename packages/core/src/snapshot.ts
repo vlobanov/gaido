@@ -101,6 +101,12 @@ export interface SnapshotRun {
   critiquingFinishedAt: number | null;
   config: SnapshotRunConfig;
   codeArtifactId: string | null;
+  /**
+   * Primary output artifact (any {@link OutputKind}). Optional: snapshots
+   * published before output generalization lack it — viewers fall back to
+   * `videoArtifactId`. The artifact row's `kind` says how to present it.
+   */
+  outputArtifactId?: string | null;
   videoArtifactId: string | null;
   thumbnailArtifactId: string | null;
   /** Live-preview origin for this run, rewritten to the publish domain. Null when none. */
@@ -162,7 +168,7 @@ export interface GaidoSnapshotV1 {
   canvas: SnapshotCanvas;
   nodes: SnapshotNode[];
   runs: SnapshotRun[];
-  /** Only `video` / `thumbnail` artifacts — the displayed ones. */
+  /** Only displayed artifacts — outputs (video/image/model/page) + thumbnails. */
   artifacts: SnapshotArtifact[];
   references: SnapshotReference[];
   coders: SnapshotCoder[];

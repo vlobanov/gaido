@@ -57,8 +57,8 @@ The orchestrator resolves the coder per run (`resolveCoder`) against the effecti
 - `node.currentRunId` points at the latest run.
 - `node.sessionId` persists the coder's session across retries (Claude Code's `--resume`).
 - Each successful coder run that produces a diff stacks a commit on `node/<nodeId>`; `runs.commitSha` points back. No-diff runs intentionally produce no commit.
-- A coder run is two phases against one commit: **coding** (the coder writes + the orchestrator commits) then **rendering** (the renderer turns that commit into a video). A transient renderer failure fails the whole run — so the UI offers **Re-render** on a coder whose `runs.error.phase === 'rendering'` (the `rerunRender` mutation → `Orchestrator.rerunRender`). It reuses the same run and commit, clears the failure, and repeats *only* the render phase against the worktree — no new coder turn, no tokens. Gated to the branch leaf (same rule as Retry, since rendering reads the branch tip). Retry, by contrast, re-runs the coder from scratch.
-- Critique nodes don't have worktrees, branches, or commits — they read the parent coder's video artifact and persist `runs.critique` JSON.
+- A coder run is two phases against one commit: **coding** (the coder writes + the orchestrator commits) then **rendering** (the renderer turns that commit into its outputs — a video normally; some renderers add a still image, 3D model, or page; see "Render outputs are typed" in `docs/architecture.md`). A transient renderer failure fails the whole run — so the UI offers **Re-render** on a coder whose `runs.error.phase === 'rendering'` (the `rerunRender` mutation → `Orchestrator.rerunRender`). It reuses the same run and commit, clears the failure, and repeats *only* the render phase against the worktree — no new coder turn, no tokens. Gated to the branch leaf (same rule as Retry, since rendering reads the branch tip). Retry, by contrast, re-runs the coder from scratch.
+- Critique nodes don't have worktrees, branches, or commits — they read the parent run's rendered media (its video, else a still-image primary output) and persist `runs.critique` JSON.
 
 ## Status enum is kind-agnostic
 
