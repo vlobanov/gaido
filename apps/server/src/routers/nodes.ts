@@ -296,6 +296,7 @@ export const nodesRouter = router({
           sessionPolicy: schema.nodes.sessionPolicy,
           autoRunTotal: schema.nodes.autoRunTotal,
           autoRunRemaining: schema.nodes.autoRunRemaining,
+          note: schema.nodes.note,
           isFavorite: schema.nodes.isFavorite,
           createdAt: schema.nodes.createdAt,
           updatedAt: schema.nodes.updatedAt,
@@ -1628,6 +1629,36 @@ export const nodesRouter = router({
         });
       }
       return node;
+    }),
+
+  /**
+   * Set (or clear, with null/blank) a node's margin note — free text like
+   * "published as hero-loop on videoeffects.com", authored by the artist or
+   * an external agent (`gaido note`). Shown on the card; purely descriptive,
+   * no orchestration meaning.
+   */
+  setNote: publicProcedure
+    .input(z.object({ nodeId: z.string(), note: z.string().max(2000).nullable() }))
+    .mutation(({ ctx, input }) => {
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get();
+      if (!node) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.nodeId}` });
+      }
+      const note = input.note?.trim() || null;
+      ctx.db
+        .update(schema.nodes)
+        .set({ note, updatedAt: Date.now() })
+        .where(eq(schema.nodes.id, input.nodeId))
+        .run();
+      return ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get()!;
     }),
 
   setPosition: publicProcedure

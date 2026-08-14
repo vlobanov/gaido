@@ -90,6 +90,18 @@ For a "read all the reviews, extract general updates" pass:
 
 Rules must be generic ("Avoid pure white backgrounds"), never render-specific ("the blue square should be slower") — they're prepended to every fresh coder session in the project.
 
+## Marking nodes with notes
+
+A node can carry one free-text margin note, shown on its card in the UI and in `gaido node` / `gaido tree` output — use it to record provenance or status the artist should see at a glance:
+
+```sh
+gaido note n_abc123 "published as hero-loop on videoeffects.com 2026-08-14"
+gaido note n_abc123            # print it
+gaido note n_abc123 --clear    # remove it
+```
+
+Setting a note overwrites the previous one (read-modify-write if you need to append). Notes are descriptive only — they never affect orchestration.
+
 ## Gotchas
 
 - **Server not running** → every command fails fast with the address it tried. Start `gaido` in the project dir (backgrounded is fine).

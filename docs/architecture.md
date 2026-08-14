@@ -7,7 +7,7 @@ pnpm workspace, ESM throughout, TypeScript strict.
 ```
 apps/server     Fastify + tRPC v11 + Drizzle/SQLite. Owns graph state and the orchestrator.
 apps/web        Vite + React 18 + xyflow + tRPC client. Talks to the server over HTTP+WS.
-apps/cli        Public package name "gaido". `gaido init`, `gaido` (= serve), `gaido publish` / `unpublish`, plus a tRPC-client command set for external agents: `nodes`/`node`/`tree`/`canvases`/`logs`/`critiques` (reads, `--json`), `fork`/`submit` (external nodes), `lessons`, `skeleton reseed`. Needs the server running; see `skills/gaido-cli/SKILL.md`.
+apps/cli        Public package name "gaido". `gaido init`, `gaido` (= serve), `gaido publish` / `unpublish`, plus a tRPC-client command set for external agents: `nodes`/`node`/`tree`/`canvases`/`logs`/`critiques` (reads, `--json`), `fork`/`submit` (external nodes), `note` (margin note on a node, shown on its card), `lessons`, `skeleton reseed`. Needs the server running; see `skills/gaido-cli/SKILL.md`.
 packages/core   Schema, types, adapter interfaces, event payload union, defineConfig, ID utils, stub adapters.
 test-project/   Dev fixture (workspace member) — not part of the framework. cwd Vadim uses to test the CLI.
 infra/worker/   Cloudflare Worker + wrangler + setup README for serving published canvases from R2. Deploy-only, not a workspace package.

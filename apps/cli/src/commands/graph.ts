@@ -75,6 +75,7 @@ export async function runNode(cwd: string, argv: string[]): Promise<void> {
   const { node, currentRun } = detail;
   console.log(`${pc.bold(node.id)}  ${node.kind} · ${statusLabel(node.status)}`);
   console.log(`${pc.dim('instruction:')} ${node.instruction}`);
+  if (node.note) console.log(`${pc.dim('note:')}        ${pc.yellow(node.note)}`);
   if (node.kind === 'coder') {
     console.log(`${pc.dim('coder:')}       ${detail.resolvedCoderName}`);
   }
@@ -124,6 +125,7 @@ export async function runTree(cwd: string, argv: string[]): Promise<void> {
       bits.push(pc.magenta(n.external ? 'external' : n.resolvedCoderName));
     }
     bits.push(pc.dim(`"${truncate(n.instruction, 48)}"`));
+    if (n.note) bits.push(pc.yellow(`✎ ${truncate(n.note, 40)}`));
     return bits.join(' · ');
   };
 

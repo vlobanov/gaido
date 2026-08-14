@@ -34,6 +34,12 @@ export interface CoderCardData extends PhaseTiming {
    */
   external: boolean;
   /**
+   * Margin note set on the node (`gaido note`) — provenance/status prose
+   * like "published as hero-loop on videoeffects.com". Rendered as its own
+   * strip under the frame; null = no strip.
+   */
+  note: string | null;
+  /**
    * True only for a legacy root coder (no parent — pre-instruction-node
    * graphs). New coders hang under a config/critique, so their instruction
    * lives on the instruction root or the critique and is NOT re-shown here.
@@ -82,6 +88,34 @@ function CoderTag({ name }: { name: string }) {
     >
       coder · {name}
     </p>
+  );
+}
+
+/**
+ * The node's margin note — artist/agent-authored provenance ("published as
+ * …"), set via `gaido note`. A quiet annotation strip in the lab-notebook
+ * register: serif italic on deep paper, clamped to two lines with the full
+ * text on hover.
+ */
+function NoteStrip({ note }: { note: string }) {
+  return (
+    <div
+      data-testid="node-note"
+      className="border-t border-hairline bg-paper-deep px-4 py-2"
+    >
+      <p
+        className="font-serif text-xs italic leading-snug text-ink-muted"
+        style={{
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+        title={note}
+      >
+        {note}
+      </p>
+    </div>
   );
 }
 
@@ -144,6 +178,8 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         outputKind={d.outputKind}
         currentRunId={d.currentRunId}
       />
+
+      {d.note ? <NoteStrip note={d.note} /> : null}
 
       {showCoder || d.external || d.isRootCoder ? (
         <div className="border-t border-hairline px-4 pb-3 pt-3">
@@ -260,6 +296,8 @@ function MessageOnlyCard({
           <Markdown className="text-sm leading-snug">{message.body}</Markdown>
         </div>
       </div>
+
+      {d.note ? <NoteStrip note={d.note} /> : null}
 
       <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-2">
         <StatusBadge status={d.status} timing={d} />

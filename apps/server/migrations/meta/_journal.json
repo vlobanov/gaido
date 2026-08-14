@@ -85,6 +85,13 @@
       "when": 1783428510322,
       "tag": "0011_yummy_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786707395320,
+      "tag": "0012_fearless_warbound",
+      "breakpoints": true
     }
   ]
 }

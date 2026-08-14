@@ -76,6 +76,12 @@ export const nodes = sqliteTable(
      */
     autoRunTotal: integer('auto_run_total'),
     autoRunRemaining: integer('auto_run_remaining'),
+    /**
+     * Artist/agent-authored margin note on the node — free text like
+     * "published as hero-loop on videoeffects.com". Set via `gaido note` (or
+     * the nodes.setNote mutation), shown on the card. Null = no note.
+     */
+    note: text('note'),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),

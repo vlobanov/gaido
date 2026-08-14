@@ -11,6 +11,7 @@ import {
   runTree,
 } from './commands/graph.js';
 import { runFork, runSubmit } from './commands/external.js';
+import { runNote } from './commands/note.js';
 import { runLessons } from './commands/lessons.js';
 import { runSkeleton } from './commands/skeleton.js';
 import { skeletonCatalog } from './templates.js';
@@ -49,6 +50,8 @@ ${pc.bold('External edits (code authored outside gaido):')}
                               Commit the worktree diff and render it as a run
 
 ${pc.bold('Project knowledge:')}
+  ${pc.cyan('note')} <nodeId> ["<text>" | --clear]
+                              Set/print/clear a node's margin note (shown on the card)
   ${pc.cyan('lessons')} [add "<rule>"]      Print LESSONS.md, or promote a rule (deduped)
   ${pc.cyan('skeleton')} list|reseed <name> List presets / commit skeleton edits to seed/<name>
 
@@ -59,6 +62,14 @@ ${pc.dim('Add your own at ./skeletons/<name>/ (project) or ~/.gaido/skeletons/<n
 ${pc.dim('Run with no arguments to start the server.')}
 `);
 }
+
+// Piping CLI output into `head`/`jq -e` closes stdout early; without this
+// Node crashes with an unhandled EPIPE instead of exiting quietly like any
+// well-behaved unix tool. Agents pipe constantly, so exit clean.
+process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -104,6 +115,9 @@ async function main(): Promise<void> {
       return;
     case 'submit':
       await runSubmit(cwd, rest);
+      return;
+    case 'note':
+      await runNote(cwd, rest);
       return;
     case 'lessons':
       await runLessons(cwd, rest);
