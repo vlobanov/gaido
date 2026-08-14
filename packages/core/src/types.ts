@@ -97,3 +97,12 @@ export interface AdapterConfigSnapshot {
   critic: { kind: string; model?: string; args?: unknown };
   renderer: { kind: string; args?: unknown };
 }
+
+/**
+ * Sentinel `coder.kind` recorded on runs whose "coding" happened outside any
+ * registered adapter — a human or an external agent edited the worktree
+ * directly and submitted it (`gaido submit`). Never a registry key: the node's
+ * `coderName` stays untouched so descendants keep inheriting the branch's real
+ * coder; the run's config snapshot is the single source of provenance.
+ */
+export const EXTERNAL_CODER_KIND = 'external';

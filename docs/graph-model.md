@@ -41,6 +41,17 @@ A `config` node records a coder/model switch made mid-graph (the `switchCoder` m
 
 Entry points: the seed modal (`createRoot({ autoRun })`) and `autoRun({ nodeId, iterations })` from any leaf (a critique, or a coder — a done coder forwards to its critique child without re-coding; a non-`done` leaf coder re-runs as cycle 1). Interrupt via `interruptAuto({ nodeId, mode })`: `'after'` clears the budget so the in-flight step finishes then stops; `'now'` also aborts it. Both find the frontier from any node in the chain (`findAutoRunFrontier`). Auto-run needs a **model critic** — a `human` critic can't drive the loop, so the control is hidden and the mutations reject it.
 
+## External coder nodes (fork → edit → submit)
+
+Code authored **outside** any coder adapter — the artist editing by hand, or an external agent driven through the CLI — enters the graph as an ordinary `kind='coder'` node so every invariant (critique auto-spawn, fork/continue, leaf rules, artist review) applies unchanged. Two mutations carry the flow (`gaido fork` / `gaido submit` are their CLI faces; the `gaido-cli` bundled skill documents the agent-facing contract):
+
+- **`forkExternal`** — same graph placement as a fork (coder under the critique; a coder target resolves to its critique child), references inherited, but no run starts: the worktree + branch are created immediately (off the parent iteration's `commitSha`, falling back to the ancestor's branch tip for no-diff parents) and the path is returned for direct editing. The `instruction` is the human-readable description of the edit.
+- **`submitExternal`** — commits the worktree diff (`commitRun`, same references exclusion) and executes **only the render phase**, then lands `done` and auto-spawns the idle critique child. No coding phase, no session, no tokens. Optional `runCritique` runs the model critic immediately (rejected for human critics); optional `instruction` updates the node's description. Also valid on any non-running **leaf** coder (in-place hand-tweak: stacks a commit + run on that node). A no-diff submit renders the branch tip.
+
+Provenance lives on the **run**, not the node: `runs.config_snapshot.coder.kind === 'external'` (`EXTERNAL_CODER_KIND` in core). The node's `coder_name` stays null so descendants keep inheriting the branch's real coder — an external node has no session, so a later Continue starts a fresh session from its code with current LESSONS.md, exactly the normal fresh-session contract. `nodes.list` exposes the bit as `external`; the card shows "coder · external edit".
+
+Related plumbing added for external agents: `runs.listCritiques` (every stored critique in one query — feedback-generalization passes), `nodes.get` returns `worktreePath`/`logDir`, and `skeletons.reseed` commits the skeleton dir's current contents as a new tip on `seed/<name>` (new roots only; propagating into existing branches is exactly a batch external pass).
+
 ## Coder selection
 
 The config holds a **named coder registry** (`coders: Record<string, Coder>`, or a single `coder` registered as `"default"` — `resolveCoderRegistry` in `packages/core`). A node's effective coder is the first non-null `coder_name` walking up its parent chain, else the registry default — the same inherit-down-lineage shape as `skeleton_name`. `coder_name` is set only where a coder is *chosen*:

@@ -85,6 +85,17 @@ export interface WorkspaceManager {
    * no `commitSha` of its own — from the branch tip it actually rendered.
    */
   resolveBranchTip(nodeId: string): Promise<string | null>;
+  /**
+   * Re-commit the skeleton's *current* directory contents as a new tip on
+   * `seed/<name>`. Seed branches are otherwise write-once (lazy-created on
+   * first use and never re-read), so edits to `skeletons/<name>/` silently
+   * do nothing for the project — this is the explicit "pick up my skeleton
+   * changes" action. Only affects roots created after the reseed; existing
+   * lineages branched off the old seed keep their history. Returns the new
+   * tip sha, or null when the skeleton matches the branch already;
+   * `created` is true when the branch didn't exist and was seeded fresh.
+   */
+  reseedSeedBranch(name: string): Promise<{ sha: string | null; created: boolean }>;
   /** Remove worktree + branch. Idempotent. */
   removeNodeWorkspace(args: RemoveNodeArgs): Promise<void>;
 }
@@ -256,6 +267,54 @@ export function createWorkspaceManager(
     }
   };
 
+  const reseedSeedBranch = async (
+    name: string
+  ): Promise<{ sha: string | null; created: boolean }> => {
+    const branch = seedBranchOf(name);
+    if (!isInitialized() || !(await branchExists(branch))) {
+      // No branch yet — the ordinary lazy-create path already commits the
+      // skeleton's current contents.
+      await ensureSeedBranch(name);
+      const { stdout } = await git('rev-parse', `refs/heads/${branch}`);
+      return { sha: stdout.trim(), created: true };
+    }
+
+    const source = resolveSkeleton(name);
+    if (!source || !fs.existsSync(source)) {
+      throw new Error(`skeleton '${name}' not found on disk`);
+    }
+
+    // Clone just the seed branch into a scratch repo, swap its tree for the
+    // skeleton's current contents, and push the new commit back. Mirrors the
+    // ensureSeedBranch bootstrap (including the overlay-file exclusion) but
+    // on top of the existing history, so `seed/<name>` stays fast-forwardable.
+    const bootstrap = path.join(runsDir, '.bootstrap-reseed');
+    if (fs.existsSync(bootstrap)) {
+      fs.rmSync(bootstrap, { recursive: true, force: true });
+    }
+    try {
+      await exec(
+        'git',
+        ['clone', '--quiet', '--branch', branch, '--single-branch', gitDir, bootstrap],
+        { env: env() }
+      );
+      await gitIn(bootstrap, 'rm', '-r', '-q', '--ignore-unmatch', '--', '.');
+      copyDirContents(source, bootstrap);
+      for (const filename of SKELETON_CONFIG_FILENAMES) {
+        fs.rmSync(path.join(bootstrap, filename), { force: true });
+      }
+      await gitIn(bootstrap, 'add', '-A');
+      const { stdout: staged } = await gitIn(bootstrap, 'diff', '--cached', '--name-only');
+      if (staged.trim() === '') return { sha: null, created: false };
+      await gitIn(bootstrap, 'commit', '-m', `reseed: ${name}`);
+      await gitIn(bootstrap, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
+      const { stdout: sha } = await gitIn(bootstrap, 'rev-parse', 'HEAD');
+      return { sha: sha.trim(), created: false };
+    } finally {
+      fs.rmSync(bootstrap, { recursive: true, force: true });
+    }
+  };
+
   const removeNodeWorkspace = async (args: RemoveNodeArgs): Promise<void> => {
     if (!isInitialized()) return;
     const wt = path.join(runsDir, args.canvasSlug, args.nodeId);
@@ -282,6 +341,7 @@ export function createWorkspaceManager(
     commitRun,
     archiveCommit,
     resolveBranchTip,
+    reseedSeedBranch,
     removeNodeWorkspace,
   };
 }

@@ -188,6 +188,10 @@ runs/                  gitignored
 
 `gaido.db` and `runs/` are runtime state. The git history under `runs/.git` is the source of truth for code diffs.
 
+## Driving gaido as an agent (CLI)
+
+The `gaido` CLI can read and mutate the graph while the server runs — list nodes/critiques as JSON, create a node from code you edited yourself (`gaido fork` → edit the worktree → `gaido submit`), promote LESSONS.md rules, reseed skeletons. For batch updates across existing runs, feedback-generalization passes, or injecting manual edits as proper nodes, load the **`gaido-cli`** skill — it documents the command set and the fork→edit→submit contract.
+
 ## Driving the UI from tests
 
 If the project needs end-to-end testing via Playwright MCP, load the `playwright-testing` skill — it documents the `window.__gaido` debug bridge (`trigger.createRoot`, `trigger.fork`, `trigger.runCritique`, `waitForNodeStatus`, etc.) and the stable `data-testid` map.

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { schema } from '@vadimlobanov/gaido-core';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { router, publicProcedure } from '../trpc.js';
 import { openInFileManager } from '../previews.js';
 
@@ -36,6 +36,38 @@ export const runsRouter = router({
         .from(schema.runs)
         .where(eq(schema.runs.nodeId, input.nodeId))
         .orderBy(desc(schema.runs.createdAt))
+        .all();
+    }),
+
+  /**
+   * Every stored critique in one query — the input to a "generalize the
+   * feedback" pass (an external agent reading all reviews at once, e.g. via
+   * `gaido critiques`). Joins each critique node's current run so the payload
+   * carries the critique JSON plus enough lineage (parent coder, canvas) to
+   * trace it back. Ordered oldest-first so re-reads are stable.
+   */
+  listCritiques: publicProcedure
+    .input(z.object({ canvasId: z.string().optional() }).optional())
+    .query(({ ctx, input }) => {
+      const conditions = [
+        eq(schema.nodes.kind, 'critique'),
+        isNotNull(schema.runs.critique),
+        ...(input?.canvasId ? [eq(schema.nodes.canvasId, input.canvasId)] : []),
+      ];
+      return ctx.db
+        .select({
+          nodeId: schema.nodes.id,
+          coderNodeId: schema.nodes.parentId,
+          canvasId: schema.nodes.canvasId,
+          instruction: schema.nodes.instruction,
+          critique: schema.runs.critique,
+          runId: schema.runs.id,
+          createdAt: schema.runs.createdAt,
+        })
+        .from(schema.nodes)
+        .innerJoin(schema.runs, eq(schema.nodes.currentRunId, schema.runs.id))
+        .where(and(...conditions))
+        .orderBy(schema.runs.createdAt)
         .all();
     }),
 

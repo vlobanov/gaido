@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { schema, nodeId as newNodeId } from '@vadimlobanov/gaido-core';
+import {
+  schema,
+  nodeId as newNodeId,
+  EXTERNAL_CODER_KIND,
+} from '@vadimlobanov/gaido-core';
 import type { ArtifactKind, Critique } from '@vadimlobanov/gaido-core';
 import type { Node } from '@vadimlobanov/gaido-core/schema';
 import { and, eq, gt, inArray } from 'drizzle-orm';
@@ -298,6 +302,7 @@ export const nodesRouter = router({
           thumbnailArtifactId: schema.runs.thumbnailArtifactId,
           videoArtifactId: schema.runs.videoArtifactId,
           outputArtifactId: schema.runs.outputArtifactId,
+          configSnapshot: schema.runs.configSnapshot,
           previewUrl: schema.runs.previewUrl,
           message: schema.runs.message,
           codingStartedAt: schema.runs.codingStartedAt,
@@ -336,9 +341,12 @@ export const nodesRouter = router({
           .all();
         for (const a of arts) outputKindById.set(a.id, a.kind);
       }
-      return rows.map((r) => ({
+      // The full snapshot stays server-side; the graph only needs the
+      // external-provenance bit (current run coded outside any adapter).
+      return rows.map(({ configSnapshot, ...r }) => ({
         ...r,
         resolvedCoderName: resolveCoderNameInRows(r, byId, defaultName),
+        external: configSnapshot?.coder.kind === EXTERNAL_CODER_KIND,
         outputKind: r.outputArtifactId
           ? outputKindById.get(r.outputArtifactId) ?? null
           : null,
@@ -436,6 +444,24 @@ export const nodesRouter = router({
           ? { artifactId: art.id, kind: art.kind, mime: art.mime }
           : null;
       })();
+      // Filesystem pointers for external tooling (`gaido node --json`): the
+      // branch worktree (owned by the anchor; null for run-less marker kinds)
+      // and the current run's log directory. The web UI ignores these.
+      const canvasSlugRow = ctx.db
+        .select({ slug: schema.canvases.slug })
+        .from(schema.canvases)
+        .where(eq(schema.canvases.id, node.canvasId))
+        .get();
+      const worktreePath =
+        node.kind === 'coder' && canvasSlugRow
+          ? ctx.workspace.workspacePath({
+              nodeId: node.branchAnchorId ?? node.id,
+              canvasSlug: canvasSlugRow.slug,
+            })
+          : null;
+      const logDir = currentRun
+        ? path.join(ctx.paths.logsDir, currentRun.id)
+        : null;
       return {
         node,
         currentRun,
@@ -444,6 +470,8 @@ export const nodesRouter = router({
         resolvedCoderName,
         resolvedCoderKind,
         currentRunOutput,
+        worktreePath,
+        logDir,
       };
     }),
 
@@ -736,6 +764,238 @@ export const nodesRouter = router({
         .where(eq(schema.nodes.id, id))
         .get()!;
       return { node, run };
+    }),
+
+  /**
+   * Create an *external* coder node: a slot for code authored outside gaido —
+   * a human editing by hand, or an agent driven through `gaido fork` /
+   * `gaido submit`. Same graph shape as a fork (coder under the critique;
+   * pointing at a coder resolves to its critique child like the UI fork
+   * action), same worktree mechanics (fresh branch off the parent iteration's
+   * commit), but NO coder adapter runs: the worktree is created immediately
+   * and handed back for direct editing, and the node stays `idle` until
+   * `submitExternal` commits + renders it.
+   */
+  forkExternal: publicProcedure
+    .input(
+      z.object({
+        parentId: z.string(),
+        instruction: z.string().min(1),
+        references: z.array(referenceInputSchema).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parent = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.parentId))
+        .get();
+      if (!parent) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `parent node ${input.parentId}`,
+        });
+      }
+      // Accept a coder for convenience (resolve to its critique child, the
+      // same normalization the UI fork does) or the critique itself.
+      let critique: Node;
+      if (parent.kind === 'critique') {
+        critique = parent;
+      } else if (parent.kind === 'coder') {
+        const child = ctx.db
+          .select()
+          .from(schema.nodes)
+          .where(
+            and(
+              eq(schema.nodes.parentId, parent.id),
+              eq(schema.nodes.kind, 'critique')
+            )
+          )
+          .get();
+        if (!child) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'this coder has no critique child yet — it must finish a successful run before forking from it',
+          });
+        }
+        critique = child;
+      } else {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `cannot fork from a ${parent.kind} node`,
+        });
+      }
+
+      const id = newNodeId();
+      const now = Date.now();
+      const critiqueRun = critique.currentRunId
+        ? ctx.db
+            .select()
+            .from(schema.runs)
+            .where(eq(schema.runs.id, critique.currentRunId))
+            .get() ?? null
+        : null;
+      const existingChildren = ctx.db
+        .select({ positionX: schema.nodes.positionX })
+        .from(schema.nodes)
+        .where(
+          and(
+            eq(schema.nodes.parentId, critique.id),
+            eq(schema.nodes.kind, 'coder')
+          )
+        )
+        .all();
+      const rightmost = existingChildren.length
+        ? Math.max(...existingChildren.map((c) => c.positionX))
+        : critique.positionX - SIBLING_X_STEP;
+
+      ctx.db
+        .insert(schema.nodes)
+        .values({
+          id,
+          parentId: critique.id,
+          canvasId: critique.canvasId,
+          kind: 'coder',
+          positionX: rightmost + SIBLING_X_STEP,
+          positionY: nextChildY(
+            critique.positionY,
+            critiqueCardHeight(critiqueRun?.critique)
+          ),
+          instruction: input.instruction,
+          status: 'idle',
+          isFavorite: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      const ancestorCoderId = resolveAncestorCoderId(ctx.db, critique.id);
+      if (ancestorCoderId) inheritReferences(ctx, ancestorCoderId, id);
+      await bindInlineReferences(ctx, id, input.references);
+
+      // Create the worktree NOW (a normal fork defers this to the coding
+      // phase) so the caller gets a directory to edit. Branch off the parent
+      // iteration's exact commit; a no-diff ancestor run falls back to its
+      // branch tip, and a legacy/empty lineage to the default seed.
+      const canvasSlug = ctx.db
+        .select({ slug: schema.canvases.slug })
+        .from(schema.canvases)
+        .where(eq(schema.canvases.id, critique.canvasId))
+        .get()?.slug;
+      if (!canvasSlug) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `canvas ${critique.canvasId} missing`,
+        });
+      }
+      const ancestor = ancestorCoderId
+        ? ctx.db
+            .select()
+            .from(schema.nodes)
+            .where(eq(schema.nodes.id, ancestorCoderId))
+            .get() ?? null
+        : null;
+      let basisCommit: string | undefined;
+      if (ancestor?.currentRunId) {
+        basisCommit =
+          ctx.db
+            .select({ commitSha: schema.runs.commitSha })
+            .from(schema.runs)
+            .where(eq(schema.runs.id, ancestor.currentRunId))
+            .get()?.commitSha ?? undefined;
+      }
+      if (!basisCommit && ancestor) {
+        basisCommit =
+          (await ctx.workspace.resolveBranchTip(
+            ancestor.branchAnchorId ?? ancestor.id
+          )) ?? undefined;
+      }
+      const worktreePath = await ctx.workspace.ensureNodeWorkspace({
+        nodeId: id,
+        canvasSlug,
+        ...(basisCommit ? { basisCommit } : {}),
+      });
+
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, id))
+        .get()!;
+      return { node, worktreePath };
+    }),
+
+  /**
+   * Submit a directly-edited worktree as a new run on `nodeId` — the second
+   * half of the external-edit flow (`forkExternal` → edit files → submit).
+   * Commits the diff and runs ONLY the render phase; the run's config
+   * snapshot marks the coder as `'external'`. Also legal on any non-running
+   * leaf coder, where it stacks a new commit on that node's branch (the
+   * "I hand-tweaked the leaf in place" case). `runCritique` immediately runs
+   * the critic on the auto-spawned critique child — needs a model critic.
+   */
+  submitExternal: publicProcedure
+    .input(
+      z.object({
+        nodeId: z.string(),
+        /** Optional replacement for the node's card text — what this edit is. */
+        instruction: z.string().min(1).optional(),
+        runCritique: z.boolean().optional(),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      const node = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, input.nodeId))
+        .get();
+      if (!node) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `node ${input.nodeId}` });
+      }
+      if (node.kind !== 'coder') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'submit is only valid on coder nodes',
+        });
+      }
+      if (node.status === 'running') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'a run is in flight on this node — cancel it before submitting',
+        });
+      }
+      // Same leaf rule as Retry: the branch tip past a continued node is a
+      // later iteration's code, so committing/rendering here is incoherent.
+      if (!isLeafOfBranch(ctx.db, node)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'this coder has continued descendants on its branch — fork externally instead of submitting in place',
+        });
+      }
+      if (input.runCritique && ctx.config.critic.kind === 'human') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'runCritique needs a model critic — this project uses a human critic (review in the UI instead)',
+        });
+      }
+      if (input.instruction) {
+        ctx.db
+          .update(schema.nodes)
+          .set({ instruction: input.instruction, updatedAt: Date.now() })
+          .where(eq(schema.nodes.id, node.id))
+          .run();
+      }
+      const run = ctx.orchestrator.submitExternal(node.id, {
+        runCritique: input.runCritique ?? false,
+      });
+      const fresh = ctx.db
+        .select()
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, node.id))
+        .get()!;
+      return { node: fresh, run };
     }),
 
   retry: publicProcedure

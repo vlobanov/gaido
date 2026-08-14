@@ -7,7 +7,7 @@ pnpm workspace, ESM throughout, TypeScript strict.
 ```
 apps/server     Fastify + tRPC v11 + Drizzle/SQLite. Owns graph state and the orchestrator.
 apps/web        Vite + React 18 + xyflow + tRPC client. Talks to the server over HTTP+WS.
-apps/cli        Public package name "gaido". `gaido init`, `gaido` (= serve), `gaido publish` / `unpublish`.
+apps/cli        Public package name "gaido". `gaido init`, `gaido` (= serve), `gaido publish` / `unpublish`, plus a tRPC-client command set for external agents: `nodes`/`node`/`tree`/`canvases`/`logs`/`critiques` (reads, `--json`), `fork`/`submit` (external nodes), `lessons`, `skeleton reseed`. Needs the server running; see `skills/gaido-cli/SKILL.md`.
 packages/core   Schema, types, adapter interfaces, event payload union, defineConfig, ID utils, stub adapters.
 test-project/   Dev fixture (workspace member) — not part of the framework. cwd Vadim uses to test the CLI.
 infra/worker/   Cloudflare Worker + wrangler + setup README for serving published canvases from R2. Deploy-only, not a workspace package.
@@ -32,6 +32,7 @@ Other useful commands:
 - `pnpm exec gaido init` (in an empty dir) — scaffolds `gaido.config.ts`, `skeletons/<name>/` (one folder per built-in preset), `.gitignore`, `.env.example`
 - `pnpm --filter @gaido/web build:static` + `pnpm exec gaido publish <canvas>` — export a canvas as a read-only static site to Cloudflare R2 (see `docs/publishing.md`)
 - `lsof -ti :4288 | xargs -r kill` — stop a stuck server
+- `pnpm exec gaido tree` / `gaido nodes --json` (with the server running) — inspect a project's graph from the terminal; `gaido fork <id> -m "…"` + `gaido submit <id>` inject an externally-edited worktree as a new node (see "External coder nodes" in `docs/graph-model.md`)
 
 ## Stack pinning
 

@@ -6,6 +6,7 @@ import {
   nodeId as newNodeId,
   artifactId as newArtifactId,
   applySkeletonOverlay,
+  EXTERNAL_CODER_KIND,
   GAIDO_PROTOCOL_PREAMBLE,
   MESSAGE_FILENAME,
 } from '@vadimlobanov/gaido-core';
@@ -209,6 +210,63 @@ export class Orchestrator {
       .select()
       .from(schema.runs)
       .where(eq(schema.runs.id, runId))
+      .get()!;
+  }
+
+  /**
+   * Submit an externally-edited worktree as a new run: a human (or an agent
+   * outside gaido, via `gaido submit`) changed files in the node's worktree
+   * directly, so there is no coding phase — commit whatever the worktree
+   * holds, then run only the render phase and land the run like any coder
+   * run (`done` + critique child auto-spawn). The run's config snapshot
+   * records `coder.kind = 'external'`, which is the sole provenance marker:
+   * the node's lineage `coderName` stays untouched so descendants keep
+   * inheriting the branch's real coder.
+   *
+   * The tRPC layer enforces the node is a non-running leaf coder. When
+   * `runCritique` is set the configured critic runs on the fresh render
+   * immediately instead of waiting for a click (rejected upstream for human
+   * critics).
+   */
+  submitExternal(nodeId: string, opts?: { runCritique?: boolean }): Run {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) throw new Error(`node ${nodeId} not found`);
+
+    const id = newRunId();
+    const now = Date.now();
+    this.db
+      .insert(schema.runs)
+      .values({
+        id,
+        nodeId,
+        status: 'running',
+        configSnapshot: this.buildExternalConfigSnapshot(this.config),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    this.db
+      .update(schema.nodes)
+      .set({ status: 'running', currentRunId: id, updatedAt: now })
+      .where(eq(schema.nodes.id, nodeId))
+      .run();
+
+    const ctrl = new AbortController();
+    this.active.set(id, ctrl);
+    void this.executeExternal(id, nodeId, ctrl.signal, opts?.runCritique ?? false).finally(
+      () => {
+        this.active.delete(id);
+      }
+    );
+
+    return this.db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, id))
       .get()!;
   }
 
@@ -854,6 +912,101 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Execute path for `submitExternal`. No coding phase: commit whatever the
+   * externally-edited worktree holds (a no-diff submit is legal — it renders
+   * the branch tip, same as a no-diff coder run), then render and land `done`
+   * with the critique child ensured. `runCritique` starts the critic on that
+   * child right away — the unattended-batch case.
+   */
+  private async executeExternal(
+    runId: string,
+    nodeId: string,
+    signal: AbortSignal,
+    runCritique: boolean
+  ): Promise<void> {
+    const node = this.db
+      .select()
+      .from(schema.nodes)
+      .where(eq(schema.nodes.id, nodeId))
+      .get();
+    if (!node) {
+      this.setRunStatus(runId, nodeId, 'failed', {
+        error: { phase: 'startup', message: `node ${nodeId} not found` },
+      });
+      return;
+    }
+    const canvasId = node.canvasId;
+    try {
+      const cfg = await this.effectiveConfigForNode(node);
+      if (cfg !== this.config) {
+        // Refresh the critic/renderer entries from the skeleton overlay while
+        // keeping the external coder marker (reconcileConfigSnapshot would
+        // overwrite it with the lineage-resolved registry coder).
+        this.db
+          .update(schema.runs)
+          .set({
+            configSnapshot: this.buildExternalConfigSnapshot(cfg),
+            updatedAt: Date.now(),
+          })
+          .where(eq(schema.runs.id, runId))
+          .run();
+      }
+
+      const anchorId = node.branchAnchorId ?? node.id;
+      const canvasSlug = this.resolveCanvasSlug(canvasId);
+      // Idempotent — the worktree normally already exists (created at
+      // fork time and edited in place); this re-checks-out the branch tip
+      // if it was pruned so commitRun can't throw on a missing dir.
+      await this.workspace.ensureNodeWorkspace({ nodeId: anchorId, canvasSlug });
+      const sha = await this.workspace.commitRun({
+        nodeId: anchorId,
+        canvasSlug,
+        runId,
+        message: `external run ${runId}`,
+      });
+      if (sha) {
+        this.db
+          .update(schema.runs)
+          .set({ commitSha: sha, updatedAt: Date.now() })
+          .where(eq(schema.runs.id, runId))
+          .run();
+      }
+
+      await this.renderNode(runId, nodeId, node, cfg, signal);
+      this.setRunStatus(runId, nodeId, 'done', {});
+      this.autoSpawnCritiqueChild(node);
+
+      if (runCritique) {
+        const critique = this.db
+          .select()
+          .from(schema.nodes)
+          .where(
+            and(
+              eq(schema.nodes.parentId, nodeId),
+              eq(schema.nodes.kind, 'critique')
+            )
+          )
+          .get();
+        if (critique && critique.status !== 'running') {
+          this.startRun(critique.id);
+        }
+      }
+    } catch (err) {
+      if (signal.aborted) {
+        this.setRunStatus(runId, nodeId, 'cancelled', {});
+        return;
+      }
+      const e = toRunError(err);
+      this.eventBus.publish(runId, canvasId, {
+        kind: 'error',
+        phase: e.phase === 'startup' ? undefined : e.phase,
+        message: e.message,
+      });
+      this.setRunStatus(runId, nodeId, 'failed', { error: e });
+    }
+  }
+
   private async executeCritique(
     runId: string,
     nodeId: string,
@@ -1053,6 +1206,22 @@ export class Orchestrator {
     const { coder, name } = this.resolveCoder(cfg, node);
     return {
       coder: { kind: coder.kind, args: { name } },
+      critic: {
+        kind: cfg.critic.kind,
+        ...(cfg.critic.model ? { model: cfg.critic.model } : {}),
+      },
+      renderer: { kind: cfg.renderer.kind },
+    };
+  }
+
+  /**
+   * Snapshot for an external submit: the coder slot carries the `'external'`
+   * sentinel (nothing from the registry ran), critic + renderer mirror
+   * `buildConfigSnapshot` so the run records what would evaluate/render it.
+   */
+  private buildExternalConfigSnapshot(cfg: ResolvedConfig): AdapterConfigSnapshot {
+    return {
+      coder: { kind: EXTERNAL_CODER_KIND, args: { name: EXTERNAL_CODER_KIND } },
       critic: {
         kind: cfg.critic.kind,
         ...(cfg.critic.model ? { model: cfg.critic.model } : {}),

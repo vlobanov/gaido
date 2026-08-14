@@ -34,6 +34,7 @@ interface GaidoNode {
   currentRunId: string | null;
   coderName: string | null;
   resolvedCoderName: string;
+  external: boolean;
   skeletonName: string | null;
   sessionPolicy: SessionPolicy | null;
   autoRunTotal: number | null;
@@ -133,6 +134,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
         currentRunId: n.currentRunId,
         coderName: n.coderName,
         resolvedCoderName: n.resolvedCoderName,
+        external: n.external,
         skeletonName: n.skeletonName,
         sessionPolicy: n.sessionPolicy,
         parentKind: n.parentId ? kindById.get(n.parentId) ?? null : null,

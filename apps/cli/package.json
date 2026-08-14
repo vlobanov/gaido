@@ -47,6 +47,7 @@
     "prepack": "node scripts/prepack.mjs"
   },
   "dependencies": {
+    "@trpc/client": "^11.0.0",
     "@vadimlobanov/gaido-core": "workspace:*",
     "@vadimlobanov/gaido-server": "workspace:*",
     "@vadimlobanov/gaido-adapter-claude-code": "workspace:*",

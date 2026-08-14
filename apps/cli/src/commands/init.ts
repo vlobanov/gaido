@@ -82,18 +82,26 @@ export async function runInit(cwd: string, _options: InitOptions = {}): Promise<
   );
 }
 
-const SKILL_SUGGESTIONS: ReadonlyArray<{ path: string; label: string }> = [
-  { path: '.claude/skills/gaido', label: 'Claude Code' },
-  { path: '.skills/gaido', label: 'Codex / generic' },
+/** Bundled agent skills offered at init. `gaido` orients any agent working in
+ *  the project; `gaido-cli` teaches external agents the CLI (fork/submit,
+ *  reading the graph, lessons, reseed). */
+const BUNDLED_SKILLS = ['gaido', 'gaido-cli'] as const;
+
+const SKILL_DIR_SUGGESTIONS: ReadonlyArray<{ path: string; label: string }> = [
+  { path: '.claude/skills', label: 'Claude Code' },
+  { path: '.skills', label: 'Codex / generic' },
 ];
 
 async function maybeSymlinkSkill(cwd: string): Promise<void> {
-  const source = resolveSkillSource();
-  if (!source) return;
+  const sources = BUNDLED_SKILLS.flatMap((name) => {
+    const source = resolveSkillSource(name);
+    return source ? [{ name, source }] : [];
+  });
+  if (sources.length === 0) return;
 
-  console.log(`\n${pc.bold('Agent skill (optional)')}`);
+  console.log(`\n${pc.bold('Agent skills (optional)')}`);
   console.log(
-    `  ${pc.dim('Symlink the bundled SKILL.md so AI agents can read it when working in this project.')}`
+    `  ${pc.dim(`Symlink the bundled skills (${sources.map((s) => s.name).join(', ')}) so AI agents can read them when working in this project.`)}`
   );
 
   if (!process.stdin.isTTY) {
@@ -101,18 +109,18 @@ async function maybeSymlinkSkill(cwd: string): Promise<void> {
     return;
   }
 
-  const suggested = SKILL_SUGGESTIONS.map(
+  const suggested = SKILL_DIR_SUGGESTIONS.map(
     (s) => `${pc.cyan(s.path)} ${pc.dim(`(${s.label})`)}`
   ).join(', ');
   console.log(`  ${pc.dim('Suggestions:')} ${suggested}`);
 
-  const defaultAnswer = SKILL_SUGGESTIONS.map((s) => s.path).join(', ');
+  const defaultAnswer = SKILL_DIR_SUGGESTIONS.map((s) => s.path).join(', ');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   let answer: string;
   try {
     answer = (
       await rl.question(
-        `  ${pc.dim('Paths (comma-separated, blank to skip)')} [${defaultAnswer}]: `
+        `  ${pc.dim('Directories (comma-separated, blank to skip)')} [${defaultAnswer}]: `
       )
     ).trim();
   } catch {
@@ -130,27 +138,29 @@ async function maybeSymlinkSkill(cwd: string): Promise<void> {
     return;
   }
 
-  const targets = effective
+  const targetDirs = effective
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  for (const t of targets) {
-    await createSkillSymlink(cwd, t, source);
+  for (const dir of targetDirs) {
+    for (const { name, source } of sources) {
+      await createSkillSymlink(cwd, join(dir, name), source);
+    }
   }
 }
 
 /**
- * Locate the gaido skill folder. Returns the absolute path or null if it's
- * not found in either the dev-tree (running from inside the monorepo) or
- * bundled-inside-cli (future npm install) layouts.
+ * Locate a bundled skill folder by name. Returns the absolute path or null if
+ * it's not found in either the dev-tree (running from inside the monorepo) or
+ * bundled-inside-cli (npm install) layouts.
  */
-function resolveSkillSource(): string | null {
+function resolveSkillSource(name: string): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    // Dev: apps/cli/src/commands/init.ts → repo-root/skills/gaido
-    resolve(here, '..', '..', '..', '..', 'skills', 'gaido'),
-    // Bundled inside the CLI package: <pkg>/src/commands → <pkg>/skills/gaido
-    resolve(here, '..', '..', 'skills', 'gaido'),
+    // Dev: apps/cli/src/commands/init.ts → repo-root/skills/<name>
+    resolve(here, '..', '..', '..', '..', 'skills', name),
+    // Bundled inside the CLI package: <pkg>/src/commands → <pkg>/skills/<name>
+    resolve(here, '..', '..', 'skills', name),
   ];
   for (const c of candidates) {
     if (existsSync(join(c, 'SKILL.md'))) return c;

@@ -27,6 +27,13 @@ export interface CoderCardData extends PhaseTiming {
    * project registers more than one coder — otherwise it's constant noise. */
   resolvedCoderName: string;
   /**
+   * True when the current run's code was authored outside any adapter — a
+   * human or external agent edited the worktree and submitted it (`gaido
+   * submit`). Shown unconditionally: provenance matters even in a
+   * single-coder project.
+   */
+  external: boolean;
+  /**
    * True only for a legacy root coder (no parent — pre-instruction-node
    * graphs). New coders hang under a config/critique, so their instruction
    * lives on the instruction root or the critique and is NOT re-shown here.
@@ -138,9 +145,11 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         currentRunId={d.currentRunId}
       />
 
-      {showCoder || d.isRootCoder ? (
+      {showCoder || d.external || d.isRootCoder ? (
         <div className="border-t border-hairline px-4 pb-3 pt-3">
-          {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
+          {showCoder || d.external ? (
+            <CoderTag name={d.external ? 'external edit' : d.resolvedCoderName} />
+          ) : null}
           {d.isRootCoder ? (
             d.instruction ? (
               <p
@@ -230,7 +239,9 @@ function MessageOnlyCard({
           </span>
           <span>{MESSAGE_KIND_LABEL[message.kind]}</span>
         </div>
-        {showCoder ? <CoderTag name={d.resolvedCoderName} /> : null}
+        {showCoder || d.external ? (
+          <CoderTag name={d.external ? 'external edit' : d.resolvedCoderName} />
+        ) : null}
         {d.isRootCoder && d.instruction ? (
           <p
             className="font-serif text-xs italic leading-snug text-ink-muted"
