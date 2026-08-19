@@ -1,6 +1,6 @@
 ---
 name: gaido-cli
-description: "Use when driving a gaido project from the command line as an agent — reading the node graph, batch-updating existing runs, creating nodes for code you edited yourself, harvesting critique feedback, promoting project rules, or reseeding skeletons. Triggers when asked to update/migrate many gaido runs at once, to add your own edit to a gaido canvas as a proper node, or to generalize artist/critic feedback into rules. Requires the project's gaido server to be running. NOT for building visual scenes as gaido's coder agent (that role gets its instructions injected per run) and not for developing the gaido framework itself."
+description: "Use when driving a gaido project from the command line as an agent — reading the node graph, seeding roots, running coders and critics, writing feedback, batch-updating existing runs, creating nodes for code you edited yourself, harvesting critique feedback, promoting project rules, or reseeding skeletons. Triggers when asked to operate a gaido canvas (start/iterate/review runs), to update/migrate many gaido runs at once, to add your own edit to a gaido canvas as a proper node, or to generalize artist/critic feedback into rules. Requires the project's gaido server to be running. NOT for building visual scenes as gaido's coder agent (that role gets its instructions injected per run) and not for developing the gaido framework itself."
 user-invocable: true
 ---
 
@@ -28,6 +28,34 @@ What the fields mean:
 - **Id prefixes**: `n_` node, `r_` run, `c_` canvas.
 - A **leaf coder** is one nothing has continued from. Batch passes target leaf coders whose status is `done`: from `nodes --json`, keep `kind === 'coder' && status === 'done'` nodes that have no descendant coder sharing their branch — in practice, coders whose critique child has no coder children.
 - `external: true` on a coder means its current run's code came from outside gaido (this flow), not from a coder agent.
+
+## Driving the loop (everything the UI's cards do)
+
+The CLI has full parity with the artist's UI actions, so an agent can run whole campaigns. All async commands accept `--wait` (poll until the run lands, non-zero exit on failure) and `--json`. Anywhere a command wants a critique id, a **coder id also works** — it resolves to the coder's critique child.
+
+```sh
+gaido canvas create "captions v2"       # new canvas (list: gaido canvases)
+gaido coders                            # the registry — names for --coder
+gaido root "<prompt>" [--canvas <slug>] [--coder <name>] [--skeleton <name>] [--auto N] [--wait]
+gaido root "<prompt>" --batch cc-sonnet:pixi,cc-opus:pixi   # N branches, same prompt
+
+gaido critique <id> [--wait]            # run the model critic on the critique
+gaido feedback <id> "<notes>" [--rating 1-5]   # write a human critique yourself
+gaido continue <id> [--wait]            # iterate on the same branch (resumed session)
+gaido fork <id> -m "<instruction>" --agent [--wait]  # new branch, coder agent codes it
+gaido retry <id> [-m "<steer>"] [--coder <name>]     # re-run a leaf coder / a critique
+gaido reply <coderId> "<text>"          # next turn in the leaf's live session
+gaido auto <id> -n 5                    # unattended code→critique→continue loop
+gaido auto <id> --stop [--now]          # interrupt it (--now aborts in-flight)
+gaido switch <id> --coder <name> -m "<instruction>" [--retain]  # coder swap via config node
+gaido rerender <coderId>                # repeat a failed render, no coder turn
+gaido cancel <nodeId>                   # abort an in-flight run
+gaido favorite <nodeId> [--off]         # star for the artist
+gaido ref add <coderId> --image <path>  # attach a reference (also: --run <r_id>; list/rm)
+gaido delete <nodeId> --yes             # remove a node AND its subtree — destructive
+```
+
+Which iterate verb: **continue** = same branch, resumed session, the critique's feedback as instruction. **fork --agent** = new sibling branch, fresh session, your `-m` as instruction. **fork** (no flag) = new branch you edit yourself (next section). **retry** = redo the same node in place. `gaido feedback` overwrites any existing critique on the node (it's the UI's "Critique manually" override too); `gaido critique` is rejected on human-critic projects — write the review with `feedback` instead.
 
 ## Creating a node from your own edit (fork → edit → submit)
 

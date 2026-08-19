@@ -1,23 +1,49 @@
 import pc from 'picocolors';
-import { connect, parseArgv, printJson } from '../client.js';
+import {
+  connect,
+  parseArgv,
+  printJson,
+  resolveCritiqueNodeId,
+  waitForRun,
+} from '../client.js';
 
 /**
  * `gaido fork <nodeId> -m "<description>"` — create an external coder node
  * under the target's critique (a coder id resolves to its critique child)
  * and print the worktree to edit. No agent runs; the node waits idle until
  * `gaido submit`.
+ *
+ * `--agent` instead forks the way the UI does: a coder AGENT gets the `-m`
+ * text as its instruction and runs immediately (fresh session, inherited
+ * references) — no worktree handed back, nothing to submit.
  */
 export async function runFork(cwd: string, argv: string[]): Promise<void> {
   const { positionals, flags, options } = parseArgv(argv, {
-    flags: ['--json'],
+    flags: ['--json', '--agent', '--wait'],
     options: { '--message': ['-m'], '--url': [] },
   });
   const parentId = positionals[0];
   const instruction = options['--message'];
   if (!parentId || !instruction) {
-    throw new Error('usage: gaido fork <coderOrCritiqueId> -m "<what this edit is>"');
+    throw new Error(
+      'usage: gaido fork <coderOrCritiqueId> -m "<what this edit is>" [--agent [--wait]]'
+    );
   }
   const { client } = await connect(cwd, options['--url']);
+  if (flags.has('--agent')) {
+    const critiqueId = await resolveCritiqueNodeId(client, parentId);
+    const { node, run } = await client.nodes.createChild.mutate({
+      parentId: critiqueId,
+      instruction,
+    });
+    if (flags.has('--wait')) return waitForRun(client, node.id, run.id, { json: flags.has('--json') });
+    if (flags.has('--json')) return printJson({ nodeId: node.id, runId: run.id, status: run.status });
+    console.log(`${pc.green('✓')} coder ${pc.bold(node.id)} forked and running — run ${run.id}`);
+    return;
+  }
+  if (flags.has('--wait')) {
+    throw new Error('--wait only applies with --agent (an external fork starts nothing to wait on)');
+  }
   const { node, worktreePath } = await client.nodes.forkExternal.mutate({
     parentId,
     instruction,

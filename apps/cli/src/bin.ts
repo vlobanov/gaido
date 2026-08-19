@@ -11,6 +11,23 @@ import {
   runTree,
 } from './commands/graph.js';
 import { runFork, runSubmit } from './commands/external.js';
+import { runCanvas } from './commands/canvas.js';
+import {
+  runAuto,
+  runCancel,
+  runCoders,
+  runContinue,
+  runCritiqueNode,
+  runDelete,
+  runFavorite,
+  runFeedback,
+  runRerender,
+  runRetry,
+  runReply,
+  runRoot,
+  runSwitch,
+} from './commands/actions.js';
+import { runRef } from './commands/refs.js';
 import { runNote } from './commands/note.js';
 import { runLessons } from './commands/lessons.js';
 import { runSkeleton } from './commands/skeleton.js';
@@ -38,14 +55,38 @@ ${pc.bold('Commands:')}
 
 ${pc.bold('Graph (needs the server running; add --json for machine output):')}
   ${pc.cyan('canvases')}                    List canvases
+  ${pc.cyan('canvas')} create|rename …      New canvas / rename one
+  ${pc.cyan('coders')}                      The project's coder registry
   ${pc.cyan('nodes')} [--canvas <slug>]     List nodes (id, kind, status, coder)
   ${pc.cyan('node')} <id>                   One node in detail (run, critique, worktree, logs)
   ${pc.cyan('tree')} [--canvas <slug>]      The graph as an ASCII tree
   ${pc.cyan('logs')} <runId|nodeId> [--dir] Print a run's events.ndjson (or the log dir path)
   ${pc.cyan('critiques')} [--canvas <slug>] Every stored critique, for feedback passes
 
+${pc.bold("Run the loop (everything the UI's cards do):")}
+  ${pc.cyan('root')} "<prompt>" [--canvas <slug>] [--coder <name>] [--skeleton <name>] [--auto N]
+                              Seed a new root and run its coder
+                              (--batch coder[:skeleton],… fans out branches)
+  ${pc.cyan('critique')} <id> [--wait]      Run the model critic on a node's critique
+  ${pc.cyan('feedback')} <id> "<notes>" [--rating 1-5]
+                              Write a human critique yourself
+  ${pc.cyan('continue')} <id> [--wait]      Iterate on the same branch from its critique
+  ${pc.cyan('retry')} <id> [-m "<steer>"] [--coder <name>]
+                              Re-run a leaf coder (or a critique)
+  ${pc.cyan('reply')} <id> "<text>"         Next turn in the leaf coder's live session
+  ${pc.cyan('auto')} <id> -n <N> | --stop [--now]
+                              Start / interrupt an unattended auto-run loop
+  ${pc.cyan('switch')} <id> --coder <name> -m "<instruction>" [--retain]
+                              Switch coder mid-graph (config node) and run it
+  ${pc.cyan('rerender')} <id>               Repeat only a failed render (no coder turn)
+  ${pc.cyan('cancel')} <id>                 Abort a node's in-flight run
+  ${pc.cyan('favorite')} <id> [--off]       Star / unstar a node
+  ${pc.cyan('delete')} <id> --yes           Delete a node and its whole subtree
+  ${pc.cyan('ref')} list|add|rm …           Manage a coder's references (images, other runs)
+
 ${pc.bold('External edits (code authored outside gaido):')}
   ${pc.cyan('fork')} <nodeId> -m "<desc>"   New external node + worktree to edit by hand
+                              (--agent instead runs a coder agent on the text)
   ${pc.cyan('submit')} <nodeId> [--critique] [--wait]
                               Commit the worktree diff and render it as a run
 
@@ -94,6 +135,52 @@ async function main(): Promise<void> {
       return;
     case 'canvases':
       await runCanvases(cwd, rest);
+      return;
+    case 'canvas':
+      await runCanvas(cwd, rest);
+      return;
+    case 'coders':
+      await runCoders(cwd, rest);
+      return;
+    case 'root':
+      await runRoot(cwd, rest);
+      return;
+    case 'critique':
+      await runCritiqueNode(cwd, rest);
+      return;
+    case 'feedback':
+      await runFeedback(cwd, rest);
+      return;
+    case 'continue':
+      await runContinue(cwd, rest);
+      return;
+    case 'retry':
+      await runRetry(cwd, rest);
+      return;
+    case 'reply':
+      await runReply(cwd, rest);
+      return;
+    case 'auto':
+      await runAuto(cwd, rest);
+      return;
+    case 'switch':
+      await runSwitch(cwd, rest);
+      return;
+    case 'rerender':
+      await runRerender(cwd, rest);
+      return;
+    case 'cancel':
+      await runCancel(cwd, rest);
+      return;
+    case 'favorite':
+      await runFavorite(cwd, rest);
+      return;
+    case 'delete':
+      await runDelete(cwd, rest);
+      return;
+    case 'ref':
+    case 'refs':
+      await runRef(cwd, rest);
       return;
     case 'nodes':
       await runNodes(cwd, rest);
