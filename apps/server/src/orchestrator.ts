@@ -958,7 +958,7 @@ export class Orchestrator {
       // Idempotent — the worktree normally already exists (created at
       // fork time and edited in place); this re-checks-out the branch tip
       // if it was pruned so commitRun can't throw on a missing dir.
-      await this.workspace.ensureNodeWorkspace({ nodeId: anchorId, canvasSlug });
+      const workdir = await this.workspace.ensureNodeWorkspace({ nodeId: anchorId, canvasSlug });
       const sha = await this.workspace.commitRun({
         nodeId: anchorId,
         canvasSlug,
@@ -971,6 +971,52 @@ export class Orchestrator {
           .set({ commitSha: sha, updatedAt: Date.now() })
           .where(eq(schema.runs.id, runId))
           .run();
+      }
+
+      // External runs go through the same post-coder checks as coder runs —
+      // projects may rely on them for render preconditions (e.g. compiling
+      // the scene the renderer fetches). One attempt only: there is no coder
+      // session to feed a failure back into, so a failed check fails the run
+      // with the check output as the error.
+      const checks = cfg.postCoderChecks;
+      if (checks.length > 0) {
+        const checkResult = await runChecks({
+          checks,
+          workdir,
+          projectDir: this.paths.projectDir,
+          artifactsDir: path.join(this.paths.artifactsDir, canvasSlug),
+          runId,
+          nodeId,
+          abortSignal: signal,
+        });
+        if (checkResult.ok) {
+          for (const c of checks) {
+            this.eventBus.publish(runId, canvasId, {
+              kind: 'check_attempt',
+              attempt: 1,
+              check: c.name,
+              ok: true,
+            });
+          }
+        } else {
+          this.eventBus.publish(runId, canvasId, {
+            kind: 'check_attempt',
+            attempt: 1,
+            check: checkResult.failedCheck,
+            ok: false,
+            output: checkResult.output,
+          });
+          throw attachValidation(
+            new Error(
+              `post-coder check '${checkResult.failedCheck}' failed on external run`
+            ),
+            {
+              check: checkResult.failedCheck,
+              attempts: 1,
+              output: checkResult.output,
+            }
+          );
+        }
       }
 
       await this.renderNode(runId, nodeId, node, cfg, signal);

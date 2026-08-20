@@ -1159,8 +1159,12 @@ export const nodesRouter = router({
           message: 'run is still in progress',
         });
       }
-      // Coding must have completed — there has to be committed code to render.
-      if (!run.codingFinishedAt) {
+      // Coding must have completed — there has to be committed code to
+      // render. External runs never have a coding phase; their branch tip
+      // IS the code, so they're always renderable.
+      const isExternalRun =
+        run.configSnapshot?.coder.kind === EXTERNAL_CODER_KIND;
+      if (!run.codingFinishedAt && !isExternalRun) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message:
