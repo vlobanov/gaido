@@ -184,6 +184,50 @@ export async function runLogs(cwd: string, argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * `gaido run <runId> [--json]` — a run resolved to where it lives: its node,
+ * canvas, commit, worktree and log dir. The inverse of `node`: an artifact on
+ * the canvas is labelled by run id, but every file operation (copy a file out
+ * of the worktree, `git show <sha>:path` for an older iteration) needs the
+ * node and the commit. `--json` returns `{ run, artifacts, node, canvas,
+ * worktreePath, logDir, isCurrentRun }`.
+ */
+export async function runRun(cwd: string, argv: string[]): Promise<void> {
+  const { positionals, flags, options } = parseArgv(argv, {
+    flags: ['--json'],
+    options: { '--url': [] },
+  });
+  const runId = positionals[0];
+  if (!runId) throw new Error('usage: gaido run <runId> [--json]');
+  const { client } = await connect(cwd, options['--url']);
+  const { run, artifacts } = await client.runs.get.query({ runId });
+  const detail = await client.nodes.get.query({ nodeId: run.nodeId });
+  const canvases = await client.canvases.list.query();
+  const canvas = canvases.find((c) => c.id === detail.node.canvasId) ?? null;
+  const isCurrentRun = detail.currentRun?.id === run.id;
+  const logDir = path.join(cwd, 'runs', '.logs', run.id);
+  if (flags.has('--json')) {
+    return printJson({
+      run,
+      artifacts,
+      node: detail.node,
+      canvas,
+      worktreePath: detail.worktreePath,
+      logDir,
+      isCurrentRun,
+    });
+  }
+  console.log(`${pc.bold(run.id)}  ${statusLabel(run.status)}${isCurrentRun ? '' : pc.yellow('  (not the node\'s current run)')}`);
+  console.log(`${pc.dim('node:')}        ${detail.node.id}  ${detail.node.kind}`);
+  if (canvas) console.log(`${pc.dim('canvas:')}      ${canvas.slug}  ${canvas.id}`);
+  if (run.commitSha) console.log(`${pc.dim('commit:')}      ${run.commitSha}`);
+  if (detail.worktreePath) console.log(`${pc.dim('worktree:')}    ${detail.worktreePath}`);
+  console.log(`${pc.dim('logs:')}        ${logDir}`);
+  for (const a of artifacts) {
+    console.log(`${pc.dim('artifact:')}    ${a.kind.padEnd(10)} ${a.id}`);
+  }
+}
+
 export async function runCritiques(cwd: string, argv: string[]): Promise<void> {
   const { flags, options } = parseArgv(argv, {
     flags: ['--json'],

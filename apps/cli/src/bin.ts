@@ -7,6 +7,7 @@ import {
   runCritiques,
   runLogs,
   runNode,
+  runRun,
   runNodes,
   runTree,
 } from './commands/graph.js';
@@ -59,6 +60,7 @@ ${pc.bold('Graph (needs the server running; add --json for machine output):')}
   ${pc.cyan('coders')}                      The project's coder registry
   ${pc.cyan('nodes')} [--canvas <slug>]     List nodes (id, kind, status, coder)
   ${pc.cyan('node')} <id>                   One node in detail (run, critique, worktree, logs)
+  ${pc.cyan('run')} <runId>                One run resolved to its node, canvas, commit, worktree
   ${pc.cyan('tree')} [--canvas <slug>]      The graph as an ASCII tree
   ${pc.cyan('logs')} <runId|nodeId> [--dir] Print a run's events.ndjson (or the log dir path)
   ${pc.cyan('critiques')} [--canvas <slug>] Every stored critique, for feedback passes
@@ -187,6 +189,9 @@ async function main(): Promise<void> {
       return;
     case 'node':
       await runNode(cwd, rest);
+      return;
+    case 'run':
+      await runRun(cwd, rest);
       return;
     case 'tree':
       await runTree(cwd, rest);

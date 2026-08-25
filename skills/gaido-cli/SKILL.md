@@ -17,6 +17,7 @@ gaido canvases --json                 # canvases: { id (c_…), slug, name }
 gaido tree --canvas <slug>            # whole graph shape at a glance (human format)
 gaido nodes --canvas <slug> --json    # all nodes: id, parentId, kind, status, coder, artifacts, timings
 gaido node <n_id> --json              # one node: full current run, critique JSON, worktreePath, logDir
+gaido run <r_id> --json               # a run → its node, canvas, commitSha, worktreePath, logDir, isCurrentRun
 gaido logs <r_id | n_id>              # a run's events.ndjson (--dir for the folder path)
 gaido critiques --canvas <slug> --json# every stored critique in one dump
 ```
