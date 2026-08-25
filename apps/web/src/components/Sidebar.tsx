@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import '@google/model-viewer';
 import type {
   ArtifactKind,
+  BranchMeta,
   CoderMessage,
   CoderMessageKind,
   EventPayload,
+  MetaField,
+  MetaValue,
   NodeKind,
   NodeStatus,
 } from '@vadimlobanov/gaido-core';
@@ -223,6 +226,13 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
         )}
 
         <RunHistory nodeId={nodeId} />
+
+        <BranchMetaSection
+          nodeId={nodeId}
+          meta={nodeQuery.data?.meta ?? null}
+          branchSize={nodeQuery.data?.branchSize ?? 1}
+          onChanged={refreshNodeState}
+        />
 
         <BoundReferences nodeId={nodeId} />
 
@@ -1307,6 +1317,207 @@ function RunHistory({ nodeId }: { nodeId: string }) {
           className="font-mono text-xs uppercase tracking-caps text-sanguine"
         >
           {reveal.error.message}
+        </p>
+      ) : null}
+    </Section>
+  );
+}
+
+/**
+ * Branch metadata — the typed key/values (`config.meta`) shared by every
+ * coder on this node's branch. Declared fields render as a small form (text /
+ * checkbox / number / url) so the artist can stamp or correct values by hand;
+ * saving sends only the changed keys as a `setMeta` merge-patch. Each set key
+ * shows the iteration it was stamped through (click to jump). With no schema
+ * declared the set keys are listed read-only — the CLI is the write path.
+ * Values are branch-wide, which the header says out loud, since editing here
+ * changes every sibling iteration too.
+ */
+function BranchMetaSection({
+  nodeId,
+  meta,
+  branchSize,
+  onChanged,
+}: {
+  nodeId: string;
+  meta: BranchMeta | null;
+  branchSize: number;
+  onChanged: () => void;
+}) {
+  const info = trpc.system.info.useQuery(undefined, { staleTime: Infinity });
+  const fields = useMemo(() => info.data?.metaFields ?? [], [info.data]);
+  const setSelectedNodeId = useUiStore((s) => s.setSelectedNodeId);
+  const [draft, setDraft] = useState<Record<string, string | boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  // Draft mirrors the saved values; reset whenever the branch's meta changes
+  // under us (another node of the branch saved, the CLI wrote, etc.).
+  useEffect(() => {
+    const next: Record<string, string | boolean> = {};
+    for (const f of fields) {
+      const v = meta?.[f.key]?.value;
+      next[f.key] = f.type === 'boolean' ? v === true : v == null ? '' : String(v);
+    }
+    setDraft(next);
+    setError(null);
+  }, [fields, meta]);
+
+  const setMeta = trpc.nodes.setMeta.useMutation({
+    onSuccess: () => {
+      setError(null);
+      onChanged();
+    },
+    onError: (err) => setError(err.message),
+  });
+  const clearMeta = trpc.nodes.clearMeta.useMutation({
+    onSuccess: () => {
+      setError(null);
+      onChanged();
+    },
+    onError: (err) => setError(err.message),
+  });
+
+  const patch = useMemo(() => {
+    const out: Record<string, MetaValue | null> = {};
+    for (const f of fields) {
+      const saved = meta?.[f.key]?.value;
+      const d = draft[f.key];
+      if (f.type === 'boolean') {
+        const next = d === true;
+        if (next !== (saved === true)) out[f.key] = next;
+        continue;
+      }
+      const text = typeof d === 'string' ? d.trim() : '';
+      if (text === '') {
+        if (saved != null) out[f.key] = null;
+        continue;
+      }
+      const next: MetaValue = f.type === 'number' ? Number(text) : text;
+      if (saved == null || String(saved) !== String(next)) out[f.key] = next;
+    }
+    return out;
+  }, [fields, draft, meta]);
+  const dirty = Object.keys(patch).length > 0;
+  const hasAny = meta != null && Object.keys(meta).length > 0;
+  const busy = setMeta.isPending || clearMeta.isPending;
+
+  // Keys set but not declared (free-form projects, or a schema that shrank).
+  const extraKeys = useMemo(
+    () => Object.keys(meta ?? {}).filter((k) => !fields.some((f) => f.key === k)),
+    [meta, fields]
+  );
+
+  if (fields.length === 0 && !hasAny) return null;
+
+  const inputCls =
+    'w-full border border-hairline-deep bg-paper px-3 py-1.5 font-mono text-xs text-ink outline-none transition-colors focus:border-ink disabled:opacity-60';
+
+  const provenance = (key: string) => {
+    const entry = meta?.[key];
+    if (!entry) return null;
+    const here = entry.nodeId === nodeId;
+    return (
+      <span className="font-mono text-[10px] uppercase tracking-caps text-ink-faint">
+        {here ? (
+          'stamped here'
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSelectedNodeId(entry.nodeId)}
+            className="underline decoration-hairline-deep underline-offset-2 hover:text-ink"
+            title="Open the iteration this value was stamped through"
+          >
+            via {entry.nodeId}
+          </button>
+        )}
+        {' · '}
+        {fmt(entry.at)}
+      </span>
+    );
+  };
+
+  return (
+    <Section label="Branch meta">
+      <p className="font-serif text-sm italic leading-snug text-ink-muted">
+        {branchSize > 1
+          ? `Shared by the ${branchSize} iterations on this branch — forks start clean.`
+          : 'Shared by every later iteration on this branch — forks start clean.'}
+      </p>
+      <div className="flex flex-col gap-3" data-testid="branch-meta">
+        {fields.map((f) => (
+          <label key={f.key} className="flex flex-col gap-1">
+            <span className="flex items-baseline justify-between gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+                {f.label ?? f.key}
+              </span>
+              {provenance(f.key)}
+            </span>
+            {f.type === 'boolean' ? (
+              <input
+                type="checkbox"
+                checked={draft[f.key] === true}
+                disabled={READ_ONLY || busy}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
+                data-testid={`branch-meta-${f.key}`}
+                className="h-4 w-4 accent-[var(--sanguine)]"
+              />
+            ) : (
+              <input
+                type={f.type === 'number' ? 'number' : 'text'}
+                value={typeof draft[f.key] === 'string' ? (draft[f.key] as string) : ''}
+                disabled={READ_ONLY || busy}
+                placeholder={f.type === 'url' ? 'https://…' : ''}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+                data-testid={`branch-meta-${f.key}`}
+                className={inputCls}
+              />
+            )}
+          </label>
+        ))}
+        {extraKeys.map((k) => (
+          <div key={k} className="flex flex-col gap-1">
+            <span className="flex items-baseline justify-between gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-caps text-ink-muted">
+                {k}
+              </span>
+              {provenance(k)}
+            </span>
+            <p className="break-all font-mono text-xs text-ink">{String(meta?.[k]?.value)}</p>
+          </div>
+        ))}
+      </div>
+      {!READ_ONLY && (fields.length > 0 || hasAny) ? (
+        <div className="flex items-center gap-4">
+          {fields.length > 0 ? (
+            <button
+              type="button"
+              disabled={!dirty || busy}
+              onClick={() => setMeta.mutate({ nodeId, patch })}
+              data-testid="branch-meta-save"
+              className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+            >
+              {setMeta.isPending ? 'Saving…' : 'Save'}
+            </button>
+          ) : null}
+          {hasAny ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => clearMeta.mutate({ nodeId })}
+              data-testid="branch-meta-clear"
+              className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine disabled:opacity-40"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {error ? (
+        <p
+          data-testid="branch-meta-error"
+          className="font-mono text-xs text-sanguine"
+        >
+          {error}
         </p>
       ) : null}
     </Section>

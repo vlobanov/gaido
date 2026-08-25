@@ -30,6 +30,7 @@ import {
 } from './commands/actions.js';
 import { runRef } from './commands/refs.js';
 import { runNote } from './commands/note.js';
+import { runMeta } from './commands/meta.js';
 import { runLessons } from './commands/lessons.js';
 import { runSkeleton } from './commands/skeleton.js';
 import { skeletonCatalog } from './templates.js';
@@ -95,6 +96,8 @@ ${pc.bold('External edits (code authored outside gaido):')}
 ${pc.bold('Project knowledge:')}
   ${pc.cyan('note')} <nodeId> ["<text>" | --clear]
                               Set/print/clear a node's margin note (shown on the card)
+  ${pc.cyan('meta')} <nodeId> [key=value …] [--unset key] [--clear]
+                              Branch metadata (typed, shared by the branch; --fields lists the schema)
   ${pc.cyan('lessons')} [add "<rule>"]      Print LESSONS.md, or promote a rule (deduped)
   ${pc.cyan('skeleton')} list|reseed <name> List presets / commit skeleton edits to seed/<name>
 
@@ -210,6 +213,9 @@ async function main(): Promise<void> {
       return;
     case 'note':
       await runNote(cwd, rest);
+      return;
+    case 'meta':
+      await runMeta(cwd, rest);
       return;
     case 'lessons':
       await runLessons(cwd, rest);

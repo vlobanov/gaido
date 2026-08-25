@@ -106,3 +106,20 @@ export interface AdapterConfigSnapshot {
  * coder; the run's config snapshot is the single source of provenance.
  */
 export const EXTERNAL_CODER_KIND = 'external';
+
+/** A branch-metadata value — scalars only, so the blob stays CLI/URL friendly. */
+export type MetaValue = string | number | boolean;
+
+/**
+ * Branch metadata: project-declared key/values shared by every coder on one
+ * branch (see `MetaField` in config.ts and "Branch metadata" in
+ * docs/graph-model.md). Stored once on the branch anchor row
+ * (`nodes.branch_meta`); every node of the branch reads it through
+ * `branchAnchorId ?? id`. Each key carries provenance — when it was stamped
+ * and through which node — so the UI can mark the iteration a value came
+ * from (e.g. "this is the published one") without a separate column.
+ */
+export type BranchMeta = Record<
+  string,
+  { value: MetaValue; at: number; nodeId: string }
+>;

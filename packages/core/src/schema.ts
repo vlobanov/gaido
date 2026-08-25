@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot, SessionPolicy } from './types.js';
+import type { NodeStatus, NodeKind, RunStatus, ArtifactKind, Critique, RunError, AdapterConfigSnapshot, SessionPolicy, BranchMeta } from './types.js';
 import type { EventPayload } from './events.js';
 import type { CoderMessage } from './prompts.js';
 
@@ -82,6 +82,14 @@ export const nodes = sqliteTable(
      * the nodes.setNote mutation), shown on the card. Null = no note.
      */
     note: text('note'),
+    /**
+     * Branch metadata (`gaido meta` / `nodes.setMeta`) — typed key/values the
+     * project declares in `config.meta`, shared by the whole branch. Lives on
+     * the **anchor row only** (like `sessionId`); every node of the branch
+     * reads it via `branchAnchorId ?? id`. So Continue inherits it and a
+     * Fork (new anchor) starts clean. NULL = no metadata.
+     */
+    branchMeta: text('branch_meta', { mode: 'json' }).$type<BranchMeta>(),
     isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),

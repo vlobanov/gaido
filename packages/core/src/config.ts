@@ -141,6 +141,29 @@ export interface PublishConfig {
   indexHtmlUrls?: boolean;
 }
 
+/**
+ * One project-declared branch-metadata field. Branch metadata is a small set
+ * of typed key/values shared by every coder on a branch — "what this branch
+ * *is* outside gaido": the template name/code it was published under, a
+ * ticket id, a client's approval flag. Declaring the fields here is what lets
+ * the card render them (`card: true`), the sidebar offer a form, and
+ * `nodes.setMeta` / `gaido meta` reject typos. Values are stored once on the
+ * branch anchor and inherited by Continue; a Fork starts with none. See
+ * "Branch metadata" in docs/graph-model.md.
+ */
+export interface MetaField {
+  /** Key used in `setMeta` / `gaido meta key=value`. Dotted names are fine: 'template.code'. */
+  key: string;
+  /** Display label on the card / in the sidebar. Defaults to `key`. */
+  label?: string;
+  /** Value type. `url` is a string that must parse as an absolute URL (rendered as a link). */
+  type: 'string' | 'boolean' | 'number' | 'url';
+  /** Show this field in the coder card's meta strip (booleans show only when true). Default false. */
+  card?: boolean;
+  /** Strip this field from `gaido publish` snapshots (admin links, internal ids). Default false. */
+  private?: boolean;
+}
+
 export interface GaidoConfig {
   name?: string;
   description?: string;
@@ -180,6 +203,14 @@ export interface GaidoConfig {
   };
   staticPreview?: StaticPreviewConfig;
   publish?: PublishConfig;
+  /**
+   * Branch-metadata schema (see {@link MetaField}). Omit it and `setMeta`
+   * accepts free-form scalar keys (nothing renders on cards — the sidebar
+   * lists whatever is set). Project-level: the schema is what `gaido meta`
+   * validates against regardless of skeleton, so it's rejected in skeleton
+   * overlays like the process-global fields.
+   */
+  meta?: MetaField[];
 }
 
 export function defineConfig(config: GaidoConfig): GaidoConfig {
@@ -235,11 +266,12 @@ export function resolveCoderRegistry(
  * the `postCoderChecks` array appends, `render` shallow-merges key-by-key.
  *
  * `server`, `concurrency`, `staticPreview`, and `publish` are process-global
- * (bound once at startup / a deployment decision), so they cannot be set
+ * (bound once at startup / a deployment decision), and `meta` is project-level
+ * (one schema for `gaido meta` across every branch), so they cannot be set
  * per-skeleton: they're omitted from the type here and rejected at load time.
  */
 export type SkeletonConfigLayer = Partial<
-  Omit<GaidoConfig, 'server' | 'concurrency' | 'staticPreview' | 'publish'>
+  Omit<GaidoConfig, 'server' | 'concurrency' | 'staticPreview' | 'publish' | 'meta'>
 >;
 
 export interface SkeletonConfig extends SkeletonConfigLayer {

@@ -92,6 +92,13 @@
       "when": 1786707395320,
       "tag": "0012_fearless_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1787308727614,
+      "tag": "0013_serious_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

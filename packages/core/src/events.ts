@@ -10,7 +10,8 @@ export type EventKind =
   | 'check_attempt'
   | 'log'
   | 'error'
-  | 'run_finalized';
+  | 'run_finalized'
+  | 'node_updated';
 
 export type EventPayload =
   | { kind: 'phase_start'; phase: RunPhase }
@@ -59,7 +60,17 @@ export type EventPayload =
    * No payload data beyond the new status — the UI is expected to refetch
    * nodes/runs to read the canonical state.
    */
-  | { kind: 'run_finalized'; status: RunStatus };
+  | { kind: 'run_finalized'; status: RunStatus }
+  /**
+   * A node row changed outside the run lifecycle — its note or its branch's
+   * metadata was set from the CLI / an external tool (`gaido note`,
+   * `gaido meta`, a project's own server). Pure refresh signal, like
+   * `run_finalized`: published on the node's (or its branch anchor's) latest
+   * run so the open canvas refetches `nodes.list`. `nodeId` names the node
+   * the write went through; branch metadata also reaches every sibling on
+   * the same anchor, hence the list-wide refetch.
+   */
+  | { kind: 'node_updated'; nodeId: string; field: 'note' | 'meta' };
 
 export interface PersistedEvent {
   id: string;

@@ -6,7 +6,9 @@ import type {
   Critique,
   RunError,
   SessionPolicy,
+  BranchMeta,
 } from './types.js';
+import type { MetaField } from './config.js';
 import type { CoderMessage } from './prompts.js';
 import type { EventKind, EventPayload } from './events.js';
 
@@ -75,6 +77,14 @@ export interface SnapshotNode {
   /** Adapter kind of the resolved coder. Null when the registry can't resolve it. */
   resolvedCoderKind: string | null;
   isFavorite: boolean;
+  /** Margin note (`gaido note`). Optional: pre-note snapshots lack it. */
+  note?: string | null;
+  /**
+   * Branch metadata, already resolved through the branch anchor and with
+   * `private` fields stripped. Optional: older snapshots lack it. Null on
+   * non-coder nodes and on branches with nothing set.
+   */
+  meta?: BranchMeta | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -172,7 +182,12 @@ export interface GaidoSnapshotV1 {
   artifacts: SnapshotArtifact[];
   references: SnapshotReference[];
   coders: SnapshotCoder[];
-  system: { projectName: string | null; criticKind: string };
+  system: {
+    projectName: string | null;
+    criticKind: string;
+    /** Declared branch-metadata fields (minus `private` ones). Optional: older snapshots lack it. */
+    metaFields?: MetaField[];
+  };
   /** LESSONS.md contents at publish (`include.rules`), or null. */
   rules?: string | null;
   /** Filtered event history — present only when `include.events`. */

@@ -15,7 +15,7 @@ import type {
   NodeKind,
   NodeStatus,
 } from '@vadimlobanov/gaido-core';
-import type { SessionPolicy } from '@vadimlobanov/gaido-core';
+import type { BranchMeta, SessionPolicy } from '@vadimlobanov/gaido-core';
 import { useUiStore } from '../store';
 import { CoderCard, type CoderCardData } from './CoderCard';
 import { CritiqueCard, type CritiqueCardData } from './CritiqueCard';
@@ -36,6 +36,8 @@ interface GaidoNode {
   resolvedCoderName: string;
   external: boolean;
   note: string | null;
+  /** Branch metadata resolved through the anchor (coder nodes only). */
+  meta: BranchMeta | null;
   skeletonName: string | null;
   sessionPolicy: SessionPolicy | null;
   autoRunTotal: number | null;
@@ -137,6 +139,7 @@ export function Graph({ nodes: serverNodes }: GraphProps) {
         resolvedCoderName: n.resolvedCoderName,
         external: n.external,
         note: n.note,
+        meta: n.meta,
         skeletonName: n.skeletonName,
         sessionPolicy: n.sessionPolicy,
         parentKind: n.parentId ? kindById.get(n.parentId) ?? null : null,

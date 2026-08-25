@@ -28,6 +28,16 @@ import {
   type ReferenceDeps,
 } from '../references.js';
 import { createContinuationCoder } from '../continuation.js';
+import {
+  anchorIdOf,
+  applyMetaPatch,
+  branchMetaForRows,
+  branchSize,
+  emitNodeUpdated,
+  MetaValidationError,
+  readBranchMeta,
+  validateMetaPatch,
+} from '../meta.js';
 
 const positionSchema = z.object({ x: z.number(), y: z.number() }).optional();
 
@@ -275,6 +285,34 @@ function isLeafOfBranch(db: Db, node: Node): boolean {
   return later.length === 0;
 }
 
+/**
+ * The coder whose branch a metadata read/write targets: the node itself when
+ * it's a coder, else (critique / config) the nearest coder above it. An
+ * instruction root has no branch — rejected.
+ */
+function resolveBranchCoder(db: Db, nodeId: string): Node {
+  const node = db
+    .select()
+    .from(schema.nodes)
+    .where(eq(schema.nodes.id, nodeId))
+    .get();
+  if (!node) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: `node ${nodeId}` });
+  }
+  if (node.kind === 'coder') return node;
+  const coderId = resolveAncestorCoderId(db, node.parentId);
+  const coder = coderId
+    ? db.select().from(schema.nodes).where(eq(schema.nodes.id, coderId)).get()
+    : undefined;
+  if (!coder) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `${nodeId} is a ${node.kind} node with no coder above it — branch metadata lives on coder branches`,
+    });
+  }
+  return coder;
+}
+
 export const nodesRouter = router({
   list: publicProcedure
     .input(z.object({ canvasId: z.string().optional() }).optional())
@@ -297,6 +335,8 @@ export const nodesRouter = router({
           autoRunTotal: schema.nodes.autoRunTotal,
           autoRunRemaining: schema.nodes.autoRunRemaining,
           note: schema.nodes.note,
+          branchAnchorId: schema.nodes.branchAnchorId,
+          branchMeta: schema.nodes.branchMeta,
           isFavorite: schema.nodes.isFavorite,
           createdAt: schema.nodes.createdAt,
           updatedAt: schema.nodes.updatedAt,
@@ -342,10 +382,15 @@ export const nodesRouter = router({
           .all();
         for (const a of arts) outputKindById.set(a.id, a.kind);
       }
+      // Branch metadata lives on the anchor row; project it onto every coder
+      // of the branch so each card can show the strip. `branchMeta` itself
+      // (raw, anchor-only) stays server-side — `meta` is the resolved view.
+      const metaByNodeId = branchMetaForRows(ctx.db, rows);
       // The full snapshot stays server-side; the graph only needs the
       // external-provenance bit (current run coded outside any adapter).
-      return rows.map(({ configSnapshot, ...r }) => ({
+      return rows.map(({ configSnapshot, branchMeta: _branchMeta, ...r }) => ({
         ...r,
+        meta: metaByNodeId.get(r.id) ?? null,
         resolvedCoderName: resolveCoderNameInRows(r, byId, defaultName),
         external: configSnapshot?.coder.kind === EXTERNAL_CODER_KIND,
         outputKind: r.outputArtifactId
@@ -463,6 +508,27 @@ export const nodesRouter = router({
       const logDir = currentRun
         ? path.join(ctx.paths.logsDir, currentRun.id)
         : null;
+      // Branch metadata (resolved through the anchor) + how many coders share
+      // it — the sidebar's "shared by N iterations" line. A critique/config
+      // node reports its coder's branch, mirroring `setMeta`'s resolution.
+      const metaCoderId =
+        node.kind === 'coder'
+          ? node.id
+          : node.kind === 'instruction'
+            ? null
+            : resolveAncestorCoderId(ctx.db, node.parentId);
+      const metaCoder =
+        metaCoderId == null
+          ? null
+          : metaCoderId === node.id
+            ? node
+            : ctx.db
+                .select({ id: schema.nodes.id, branchAnchorId: schema.nodes.branchAnchorId })
+                .from(schema.nodes)
+                .where(eq(schema.nodes.id, metaCoderId))
+                .get() ?? null;
+      const metaAnchorId = metaCoder ? anchorIdOf(metaCoder) : null;
+      const meta = metaAnchorId ? readBranchMeta(ctx.db, metaAnchorId) : null;
       return {
         node,
         currentRun,
@@ -473,6 +539,9 @@ export const nodesRouter = router({
         currentRunOutput,
         worktreePath,
         logDir,
+        meta: meta && Object.keys(meta).length > 0 ? meta : null,
+        branchAnchorId: metaAnchorId,
+        branchSize: metaAnchorId ? branchSize(ctx.db, metaAnchorId) : 0,
       };
     }),
 
@@ -1658,11 +1727,73 @@ export const nodesRouter = router({
         .set({ note, updatedAt: Date.now() })
         .where(eq(schema.nodes.id, input.nodeId))
         .run();
+      emitNodeUpdated(ctx, node, 'note');
       return ctx.db
         .select()
         .from(schema.nodes)
         .where(eq(schema.nodes.id, input.nodeId))
         .get()!;
+    }),
+
+  /**
+   * Merge-patch a branch's metadata — typed key/values the project declares
+   * in `config.meta` (template name/code/published, a ticket id, …), stored
+   * once on the branch anchor and shared by every coder on the branch. A
+   * critique/config id resolves to its ancestor coder's branch (the same
+   * convenience the CLI's critique-or-coder rule gives). `null` deletes a
+   * key; every touched key is re-stamped with `{ at, nodeId }` so the UI can
+   * mark the iteration a value came from. Undeclared keys / wrong types are
+   * rejected up front (free-form when the project declares no schema).
+   * Purely descriptive — no orchestration meaning. See docs/graph-model.md.
+   */
+  setMeta: publicProcedure
+    .input(
+      z.object({
+        nodeId: z.string(),
+        patch: z
+          .record(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+          .refine((p) => Object.keys(p).length > 0, 'patch must set at least one key'),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      const coder = resolveBranchCoder(ctx.db, input.nodeId);
+      const anchorId = anchorIdOf(coder);
+      let patch;
+      try {
+        patch = validateMetaPatch(ctx.config.meta, input.patch);
+      } catch (err) {
+        if (err instanceof MetaValidationError) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+        }
+        throw err;
+      }
+      const now = Date.now();
+      const next = applyMetaPatch(readBranchMeta(ctx.db, anchorId), patch, {
+        at: now,
+        nodeId: coder.id,
+      });
+      ctx.db
+        .update(schema.nodes)
+        .set({ branchMeta: next, updatedAt: now })
+        .where(eq(schema.nodes.id, anchorId))
+        .run();
+      emitNodeUpdated(ctx, coder, 'meta');
+      return { nodeId: coder.id, branchAnchorId: anchorId, meta: next };
+    }),
+
+  /** Wipe a branch's metadata entirely (same node resolution as `setMeta`). */
+  clearMeta: publicProcedure
+    .input(z.object({ nodeId: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const coder = resolveBranchCoder(ctx.db, input.nodeId);
+      const anchorId = anchorIdOf(coder);
+      ctx.db
+        .update(schema.nodes)
+        .set({ branchMeta: null, updatedAt: Date.now() })
+        .where(eq(schema.nodes.id, anchorId))
+        .run();
+      emitNodeUpdated(ctx, coder, 'meta');
+      return { nodeId: coder.id, branchAnchorId: anchorId, meta: null };
     }),
 
   setPosition: publicProcedure

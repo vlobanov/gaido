@@ -2,8 +2,10 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type {
   ArtifactKind,
+  BranchMeta,
   CoderMessage,
   EventPayload,
+  MetaField,
   NodeStatus,
   PersistedEvent,
 } from '@vadimlobanov/gaido-core';
@@ -39,6 +41,12 @@ export interface CoderCardData extends PhaseTiming {
    * strip under the frame; null = no strip.
    */
   note: string | null;
+  /**
+   * Branch metadata (`gaido meta`) — typed key/values shared by every coder
+   * on this node's branch, resolved through the anchor server-side. The card
+   * shows the fields the project marked `card: true`; null = no strip.
+   */
+  meta: BranchMeta | null;
   /**
    * True only for a legacy root coder (no parent — pre-instruction-node
    * graphs). New coders hang under a config/critique, so their instruction
@@ -119,6 +127,75 @@ function NoteStrip({ note }: { note: string }) {
   );
 }
 
+/** Human form of one metadata value for the strip / sidebar. */
+export function formatMetaValue(field: MetaField | undefined, value: BranchMeta[string]['value']): string {
+  if (typeof value === 'boolean') return value ? field?.label ?? 'yes' : 'no';
+  return String(value);
+}
+
+/**
+ * Branch metadata on the card: the declared fields marked `card: true`, in
+ * declaration order, as a single stamped line — `Jelly · jelly · published`.
+ * Booleans appear as their label when true and are omitted when false. The
+ * small mark at the left appears on the iteration a shown value was stamped
+ * through (for a "published" flag: *this* run is the live one); every other
+ * node of the branch shows the same values without the mark. No fields
+ * declared (free-form meta) → the first three keys, raw.
+ */
+function MetaStrip({ meta, nodeId }: { meta: BranchMeta; nodeId: string }) {
+  const info = trpc.system.info.useQuery(undefined, { staleTime: Infinity });
+  const fields = info.data?.metaFields ?? [];
+  const declared = fields.filter((f) => f.card && meta[f.key] != null);
+  const entries: Array<{ key: string; field: MetaField | undefined; entry: BranchMeta[string] }> =
+    fields.length > 0
+      ? declared.map((f) => ({ key: f.key, field: f, entry: meta[f.key]! }))
+      : Object.entries(meta)
+          .slice(0, 3)
+          .map(([key, entry]) => ({ key, field: undefined, entry }));
+  const shown = entries.filter((e) => e.entry.value !== false);
+  if (shown.length === 0) return null;
+  const stampedHere = shown.some((e) => e.entry.nodeId === nodeId);
+  const title = shown
+    .map((e) => `${e.field?.label ?? e.key}: ${String(e.entry.value)}`)
+    .join('\n');
+  return (
+    <div
+      data-testid="node-meta"
+      data-stamped-here={String(stampedHere)}
+      className="flex items-center gap-2 border-t border-hairline bg-paper-deep px-4 py-1.5"
+      title={title}
+    >
+      <span
+        aria-hidden
+        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+          stampedHere ? 'bg-sanguine' : 'bg-transparent'
+        }`}
+        title={stampedHere ? 'Stamped from this iteration' : undefined}
+      />
+      <p className="min-w-0 truncate font-mono text-[10px] uppercase tracking-caps text-ink-soft">
+        {shown.map((e, i) => (
+          <span key={e.key}>
+            {i > 0 ? <span className="text-ink-faint"> · </span> : null}
+            {e.field?.type === 'url' && typeof e.entry.value === 'string' ? (
+              <a
+                href={e.entry.value}
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-hairline-deep underline-offset-2 hover:text-ink"
+                onClick={(ev) => ev.stopPropagation()}
+              >
+                {e.field.label ?? e.key}
+              </a>
+            ) : (
+              formatMetaValue(e.field, e.entry.value)
+            )}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
 function CoderCardComponent({ data, selected }: NodeProps) {
   const d = data as unknown as CoderCardData;
   const utils = trpc.useUtils();
@@ -179,6 +256,7 @@ function CoderCardComponent({ data, selected }: NodeProps) {
         currentRunId={d.currentRunId}
       />
 
+      {d.meta ? <MetaStrip meta={d.meta} nodeId={d.id} /> : null}
       {d.note ? <NoteStrip note={d.note} /> : null}
 
       {showCoder || d.external || d.isRootCoder ? (
@@ -562,7 +640,7 @@ function LiveFrame({ runId }: { runId: string }) {
         // run_finalized is a pure refresh signal — nudge nodes.list so the
         // card transitions out of the live frame to whatever terminal state
         // the orchestrator just persisted. Nothing to render.
-        if (payload.kind === 'run_finalized') {
+        if (payload.kind === 'run_finalized' || payload.kind === 'node_updated') {
           void utils.nodes.list.invalidate();
           return;
         }

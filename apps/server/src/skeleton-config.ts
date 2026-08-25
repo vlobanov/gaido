@@ -77,6 +77,7 @@ function assertNoProcessGlobalFields(cfg: SkeletonConfig, file: string): void {
     if (obj.concurrency !== undefined) forbidden.push(`${prefix}concurrency`);
     if (obj.staticPreview !== undefined) forbidden.push(`${prefix}staticPreview`);
     if (obj.publish !== undefined) forbidden.push(`${prefix}publish`);
+    if (obj.meta !== undefined) forbidden.push(`${prefix}meta`);
   };
   scan(cfg as Record<string, unknown>, '');
   scan(cfg.extend as Record<string, unknown> | undefined, 'extend.');

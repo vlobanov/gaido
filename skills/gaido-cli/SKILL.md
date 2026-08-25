@@ -131,6 +131,20 @@ gaido note n_abc123 --clear    # remove it
 
 Setting a note overwrites the previous one (read-modify-write if you need to append). Notes are descriptive only — they never affect orchestration.
 
+## Branch metadata (typed, shared by the branch)
+
+Where a note is free text on one node, **meta** is typed key/values shared by every coder on a *branch* — what the branch *is* outside gaido (the template it was published as, a ticket id, an approval flag). The project declares the fields in `gaido.config.ts` (`meta: [...]`); `gaido meta --fields` lists them. Values are stored once on the branch anchor, so **Continue inherits them and a Fork starts clean** — stamp the branch once, from whichever iteration you have in hand, and every later iteration shows it.
+
+```sh
+gaido meta --fields                                           # the declared schema (key, type, label)
+gaido meta n_abc123                                           # print the branch's meta (--json)
+gaido meta n_abc123 template.code=jelly template.published=true   # merge-patch; values coerced to the declared type
+gaido meta n_abc123 --unset template.link                     # delete a key
+gaido meta n_abc123 --clear                                   # wipe the branch's meta
+```
+
+Each key remembers the node it was stamped through and when (`via n_… · time` in the output; the card marks that iteration). A critique id resolves to its coder's branch. Undeclared keys / wrong types are rejected with the schema in the message; with no schema declared any scalar key is accepted. Like notes, meta never affects orchestration. Pair them: stamp the branch with `meta` (state), and put the event on the exact node with `note` ("published v3 from here, 2026-08-21").
+
 ## Gotchas
 
 - **Server not running** → every command fails fast with the address it tried. Start `gaido` in the project dir (backgrounded is fine).

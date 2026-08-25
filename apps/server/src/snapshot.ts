@@ -19,6 +19,7 @@ import type {
 import type { Node } from '@vadimlobanov/gaido-core/schema';
 import type { Db } from './db.js';
 import type { ResolvedConfig } from './config-loader.js';
+import { branchMetaForRows, publicMeta, publicMetaFields } from './meta.js';
 
 /**
  * Artifact kinds that ride a published snapshot: every {@link OutputKind}
@@ -109,6 +110,9 @@ export function buildCanvasSnapshot(
     .all();
   const byId = new Map(nodeRows.map((n) => [n.id, n] as const));
   const defaultCoder = config.defaultCoderName;
+  // Branch metadata resolved through each coder's anchor, private fields
+  // stripped — the viewer renders it exactly like the live card strip.
+  const metaByNodeId = branchMetaForRows(db, nodeRows);
 
   const nodes: SnapshotNode[] = nodeRows.map((n) => {
     const resolvedCoderName = resolveCoderName(n, byId, defaultCoder);
@@ -127,6 +131,8 @@ export function buildCanvasSnapshot(
       resolvedCoderName,
       resolvedCoderKind: config.coders.get(resolvedCoderName)?.kind ?? null,
       isFavorite: n.isFavorite,
+      note: n.note,
+      meta: publicMeta(metaByNodeId.get(n.id) ?? null, config.meta),
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     };
@@ -257,7 +263,11 @@ export function buildCanvasSnapshot(
     artifacts,
     references,
     coders,
-    system: { projectName: config.name ?? null, criticKind: config.critic.kind },
+    system: {
+      projectName: config.name ?? null,
+      criticKind: config.critic.kind,
+      metaFields: publicMetaFields(config.meta),
+    },
     rules: includeRules ? opts.rules ?? null : null,
     ...(events ? { events } : {}),
   };

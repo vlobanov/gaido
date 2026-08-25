@@ -37,6 +37,17 @@ export default defineConfig({
     openBrowser: true,
   },
 
+  // Branch metadata — typed key/values shared by every coder on a branch
+  // (what the branch *is* outside gaido: the template it shipped as, a
+  // ticket, an approval flag). Set via \`gaido meta <node> key=value\` or the
+  // sidebar; Continue inherits, Fork starts clean. \`card: true\` shows a field
+  // on the coder card; \`private: true\` keeps it out of published snapshots.
+  // meta: [
+  //   { key: 'shipped.name', label: 'shipped as', type: 'string', card: true },
+  //   { key: 'shipped.live', label: 'live', type: 'boolean', card: true },
+  //   { key: 'shipped.link', label: 'admin', type: 'url', private: true },
+  // ],
+
   // Publish a finished canvas as a static read-only site (gaido publish →
   // Cloudflare R2 + Worker). Uncomment, set siteUrl, and put the R2 credentials
   // in .env (see .env.example + infra/worker/README.md in the gaido repo).

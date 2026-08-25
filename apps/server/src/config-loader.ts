@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { createJiti } from 'jiti';
 import { defaults, resolveCoderRegistry } from '@vadimlobanov/gaido-core';
-import type { Coder, GaidoConfig, PreviewServerConfig, PostCoderCheck, PublishConfig } from '@vadimlobanov/gaido-core';
+import type { Coder, GaidoConfig, MetaField, PreviewServerConfig, PostCoderCheck, PublishConfig } from '@vadimlobanov/gaido-core';
 
 export interface ResolvedConfig {
   name?: string;
@@ -34,6 +34,12 @@ export interface ResolvedConfig {
    * configured one. Process-global — never overridden by skeleton overlays.
    */
   publish: PublishConfig | null;
+  /**
+   * Declared branch-metadata fields (`meta` in the config). Empty = free-form.
+   * Project-level — what `nodes.setMeta` validates against and what the
+   * card / sidebar render; never overridden by skeleton overlays.
+   */
+  meta: MetaField[];
 }
 
 export interface LoadedConfig {
@@ -121,5 +127,6 @@ export function mergeWithDefaults(cfg: GaidoConfig): ResolvedConfig {
         (cfg.server?.port ?? defaults.server.port) + 1,
     },
     publish: cfg.publish ?? null,
+    meta: cfg.meta ?? [],
   };
 }

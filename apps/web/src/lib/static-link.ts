@@ -63,6 +63,11 @@ function resolveQuery(path: string, input: any, snap: GaidoSnapshot): unknown {
         currentRunOutput: outputArt
           ? { artifactId: outputArt.id, kind: outputArt.kind, mime: outputArt.mime }
           : null,
+        worktreePath: null,
+        logDir: null,
+        meta: node.meta ?? null,
+        branchAnchorId: null,
+        branchSize: 0,
       };
     }
     case 'runs.get': {
@@ -90,7 +95,11 @@ function resolveQuery(path: string, input: any, snap: GaidoSnapshot): unknown {
       // Skeletons only feed the seed (create) flow, which is hidden read-only.
       return [];
     case 'system.info':
-      return { projectName: snap.system.projectName, criticKind: snap.system.criticKind };
+      return {
+        projectName: snap.system.projectName,
+        criticKind: snap.system.criticKind,
+        metaFields: snap.system.metaFields ?? [],
+      };
     default:
       throw new Error(`[gaido] static mode: unsupported query "${path}"`);
   }
@@ -129,6 +138,10 @@ function listRow(n: SnapshotNode, snap: GaidoSnapshot) {
     resolvedCoderName: n.resolvedCoderName,
     sessionPolicy: n.sessionPolicy,
     isFavorite: n.isFavorite,
+    // Older snapshots lack note/meta entirely.
+    note: n.note ?? null,
+    meta: n.meta ?? null,
+    branchAnchorId: null,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     thumbnailArtifactId: run?.thumbnailArtifactId ?? null,

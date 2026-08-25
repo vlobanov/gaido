@@ -8,6 +8,8 @@ export const systemRouter = router({
     return {
       projectName: ctx.config.name ?? null,
       criticKind: ctx.config.critic.kind,
+      /** Declared branch-metadata fields — drives the card strip + sidebar form. */
+      metaFields: ctx.config.meta,
     };
   }),
 });

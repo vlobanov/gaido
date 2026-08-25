@@ -52,6 +52,18 @@ Provenance lives on the **run**, not the node: `runs.config_snapshot.coder.kind 
 
 Related plumbing added for external agents: `runs.listCritiques` (every stored critique in one query — feedback-generalization passes), `nodes.get` returns `worktreePath`/`logDir`, and `skeletons.reseed` commits the skeleton dir's current contents as a new tip on `seed/<name>` (new roots only; propagating into existing branches is exactly a batch external pass).
 
+## Branch metadata
+
+Typed key/values that say what a branch *is* outside gaido — the template it was published as on videoeffects.com, a ticket id, a client's approval flag. The project declares the fields in `gaido.config.ts` (`meta: [{ key, type, label?, card?, private? }]`, types `string | boolean | number | url`); gaido stores, validates, renders, and exposes them without knowing what they mean. Distinct from `note` (free text on **one** node): meta is **per branch** and structured.
+
+- **Stored once, on the anchor.** `nodes.branch_meta` (JSON) is meaningful on the branch anchor row only — the same convention as `session_id`. Every node reads it through `branchAnchorId ?? id`. So **Continue** (and *Switch coder → retain*, auto-run) inherits it for free and a **Fork** (new anchor, also *forkExternal* / *Switch coder → reset*) starts clean — no row copying, no propagation step. Retry in place changes nothing.
+- **Per-key provenance.** Each value is `{ value, at, nodeId }` — stamped through which node, when. The card marks the node a shown value was stamped through (for a "published" flag: *this* iteration is the live one); later iterations on the branch show the same values unmarked. Nothing else distinguishes "the branch is published" from "this node is the published one" — that's the design: branch-wide state on the anchor, the event on the node (plus, optionally, a `note`).
+- **API.** `nodes.setMeta({ nodeId, patch })` merge-patches (`null` deletes a key; a critique/config id resolves to its coder's branch); `nodes.clearMeta`. With declared fields, unknown keys and type mismatches are `BAD_REQUEST`; with none, any scalar key is accepted (free-form). `nodes.list` / `nodes.get` carry the resolved `meta` (+ `branchAnchorId`, `branchSize` on `get`); `system.info.metaFields` is the schema. CLI: `gaido meta <id> key=value …`, `--unset`, `--clear`, `--fields`.
+- **Refresh.** Both `setMeta` and `setNote` publish a `node_updated` event on the branch's latest run; the web app listens canvas-wide and refetches `nodes.list`, so a write from the CLI or a project's own server shows up on an open canvas without a reload.
+- **UI.** `CoderCard` shows the `card: true` fields as one stamped line under the frame (`MetaStrip`; booleans show their label when true); the coder sidebar has a "Branch meta" form (declared fields, Save sends only the changed keys, Clear wipes the branch) that says out loud how many iterations share the values. Read-only in static mode.
+- **Snapshots.** `SnapshotNode.meta` (resolved, `private` fields stripped) + `system.metaFields`, both optional for older snapshots.
+- **Project-level, not per-skeleton.** `meta` is rejected in `gaido.skeleton.ts` like the process-global fields — one schema is what `gaido meta` validates against regardless of which skeleton a branch came from.
+
 ## Coder selection
 
 The config holds a **named coder registry** (`coders: Record<string, Coder>`, or a single `coder` registered as `"default"` — `resolveCoderRegistry` in `packages/core`). A node's effective coder is the first non-null `coder_name` walking up its parent chain, else the registry default — the same inherit-down-lineage shape as `skeleton_name`. `coder_name` is set only where a coder is *chosen*:

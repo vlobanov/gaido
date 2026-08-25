@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useLocation, useRoute } from 'wouter';
+import type { PersistedEvent } from '@vadimlobanov/gaido-core';
 import { trpc } from './lib/trpc';
 import { useUiStore } from './store';
 import { Graph } from './components/Graph';
@@ -95,6 +96,24 @@ function CanvasShell({ identifier, selectedNodeId, setLocation }: CanvasShellPro
     { enabled: canvas != null }
   );
   const nodes = nodesQuery.data ?? [];
+
+  // Out-of-band node writes — `gaido note` / `gaido meta` from the CLI or a
+  // project's own server — publish a `node_updated` event on the canvas.
+  // Nothing else refetches for them (the per-card live subscription only
+  // exists while a run is in flight), so listen canvas-wide here.
+  const utils = trpc.useUtils();
+  trpc.events.subscribe.useSubscription(
+    { canvasId: canvas?.id ?? '' },
+    {
+      enabled: canvas != null,
+      onData: (event: PersistedEvent) => {
+        if (event.payload.kind === 'node_updated') {
+          void utils.nodes.list.invalidate();
+          void utils.nodes.get.invalidate({ nodeId: event.payload.nodeId });
+        }
+      },
+    }
+  );
 
   if (canvasQuery.isLoading && !canvasQuery.data) {
     return (

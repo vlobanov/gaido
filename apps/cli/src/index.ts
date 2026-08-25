@@ -48,6 +48,9 @@ export type {
   RunStatus,
   PreviewServerConfig,
   PostCoderCheck,
+  MetaField,
+  BranchMeta,
+  MetaValue,
   SkeletonConfig,
   SkeletonConfigLayer,
 } from '@vadimlobanov/gaido-core';
