@@ -52,6 +52,14 @@ Provenance lives on the **run**, not the node: `runs.config_snapshot.coder.kind 
 
 Related plumbing added for external agents: `runs.listCritiques` (every stored critique in one query — feedback-generalization passes), `nodes.get` returns `worktreePath`/`logDir`, and `skeletons.reseed` commits the skeleton dir's current contents as a new tip on `seed/<name>` (new roots only; propagating into existing branches is exactly a batch external pass).
 
+## Node notes
+
+Free prose about **one** node — the margin note of the lab notebook ("published as hero-loop", "keep, the timing finally reads"). Stored as `nodes.note` (max 2000 chars, trimmed; blank saves as `null`), no orchestration meaning, never reaches a coder's prompt.
+
+- **One write path, two faces.** `nodes.setNote({ nodeId, note })` — the coder sidebar's "Note" section (textarea + Save, plus Remove once a note exists) and `gaido note <id> "…"` are the same mutation. Like `setMeta` it publishes a `node_updated` event, so a CLI write re-syncs an open sidebar and the card strip without a reload.
+- **Per node, not per branch.** A note stays on the iteration it was written on — Continue and Fork both start noteless. That's the split with [branch metadata](#branch-metadata): the branch-wide state goes in `meta`, the thing that happened *here* goes in the note.
+- **UI.** `CoderCard`'s `NoteStrip` under the frame (serif italic, clamped to two lines, full text on hover). Read-only in static mode, where the sidebar shows the note as prose instead of the editor.
+
 ## Branch metadata
 
 Typed key/values that say what a branch *is* outside gaido — the template it was published as on videoeffects.com, a ticket id, a client's approval flag. The project declares the fields in `gaido.config.ts` (`meta: [{ key, type, label?, card?, private? }]`, types `string | boolean | number | url`); gaido stores, validates, renders, and exposes them without knowing what they mean. Distinct from `note` (free text on **one** node): meta is **per branch** and structured.

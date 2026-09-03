@@ -6,7 +6,6 @@ import type {
   CoderMessage,
   CoderMessageKind,
   EventPayload,
-  MetaField,
   MetaValue,
   NodeKind,
   NodeStatus,
@@ -226,6 +225,12 @@ function CoderSidebar({ nodeId }: { nodeId: string }) {
         )}
 
         <RunHistory nodeId={nodeId} />
+
+        <NoteSection
+          nodeId={nodeId}
+          note={node.note ?? null}
+          onChanged={refreshNodeState}
+        />
 
         <BranchMetaSection
           nodeId={nodeId}
@@ -1333,6 +1338,112 @@ function RunHistory({ nodeId }: { nodeId: string }) {
  * Values are branch-wide, which the header says out loud, since editing here
  * changes every sibling iteration too.
  */
+/** Server-side cap on `nodes.setNote`, mirrored so the textarea stops where
+ * the mutation would reject rather than failing on save. */
+const NOTE_MAX = 2000;
+
+/**
+ * The node's margin note — free prose about *this* iteration ("published as
+ * hero-loop", "keep, the timing finally reads"), the same field `gaido note`
+ * writes. Distinct from branch meta: a note belongs to one node and says
+ * nothing typed; meta is structured and shared by the whole branch. Saved
+ * text shows up on the card as its own strip; clearing the box removes it.
+ */
+function NoteSection({
+  nodeId,
+  note,
+  onChanged,
+}: {
+  nodeId: string;
+  note: string | null;
+  onChanged: () => void;
+}) {
+  const [draft, setDraft] = useState(note ?? '');
+
+  // Re-sync when a different node is selected or the note changes under us
+  // (`gaido note` from the CLI, another tab, an external agent).
+  useEffect(() => {
+    setDraft(note ?? '');
+  }, [nodeId, note]);
+
+  const setNote = trpc.nodes.setNote.useMutation({
+    onSuccess: () => onChanged(),
+  });
+
+  // Published canvas: the note is part of the record, but writing isn't —
+  // render it as prose and drop the editor. After the hooks, so the order holds.
+  if (READ_ONLY) {
+    return note ? (
+      <Section label="Note">
+        <p
+          data-testid="node-note-text"
+          className="whitespace-pre-wrap font-serif text-sm italic leading-snug text-ink-muted"
+        >
+          {note}
+        </p>
+      </Section>
+    ) : null;
+  }
+
+  // The server trims and nulls a blank note, so compare against the trimmed
+  // draft — re-saving whitespace isn't a change.
+  const trimmed = draft.trim();
+  const dirty = trimmed !== (note ?? '');
+  const busy = setNote.isPending;
+  const remaining = NOTE_MAX - draft.length;
+
+  return (
+    <Section label="Note">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={3}
+        maxLength={NOTE_MAX}
+        placeholder="A margin note on this iteration…"
+        data-testid="node-note-input"
+        className="w-full resize-y border border-hairline bg-paper-deep px-3 py-2 font-serif text-sm italic leading-snug text-ink placeholder-ink-faint outline-none focus:border-hairline-deep"
+      />
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          disabled={!dirty || busy}
+          onClick={() => setNote.mutate({ nodeId, note: trimmed || null })}
+          data-testid="node-note-save"
+          className="border border-hairline-deep bg-paper px-4 py-2 font-mono text-xs uppercase tracking-caps text-ink transition-colors hover:bg-paper-deep disabled:opacity-40 disabled:hover:bg-paper"
+        >
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+        {note ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setNote.mutate({ nodeId, note: null })}
+            data-testid="node-note-remove"
+            className="font-mono text-xs uppercase tracking-caps text-ink-muted transition-colors hover:text-sanguine disabled:opacity-40"
+          >
+            Remove
+          </button>
+        ) : null}
+        {!dirty && note ? (
+          <span className="font-mono text-xs uppercase tracking-caps text-ink-faint">
+            saved
+          </span>
+        ) : null}
+        {remaining <= 200 ? (
+          <span className="ml-auto font-mono text-xs uppercase tracking-caps text-ink-faint">
+            {remaining} left
+          </span>
+        ) : null}
+      </div>
+      {setNote.error ? (
+        <p data-testid="node-note-error" className="font-mono text-xs text-sanguine">
+          {setNote.error.message}
+        </p>
+      ) : null}
+    </Section>
+  );
+}
+
 function BranchMetaSection({
   nodeId,
   meta,

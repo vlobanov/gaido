@@ -49,7 +49,7 @@ Names by component:
 | `BatchModal` | `batch-form`, `batch-input`, `batch-coders`, `batch-coder-<name>`, `batch-skeletons`, `batch-skeleton-<name>`, `batch-combos`, `batch-combo`, `batch-combo-remove`, `batch-submit`, `batch-cancel` |
 | `CoderCard` / `CritiqueCard` / `ConfigCard` / `InstructionCard` | `node-card` (with `data-node-id`, `data-node-kind` = `coder`\|`critique`\|`config`\|`instruction`; `data-status`/`data-favorite` on coder & critique only). Coder cards show their instruction only for a legacy root (`data-node-kind="coder"` with no parent); new coders don't. Also `node-favorite-toggle`, `critique-run` (idle critique's "Run critic" button), `config-child-link` (config sidebar) |
 | `StatusBadge` | `status-badge` (with `data-status`) |
-| `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-rerender` (coder only, when the current run failed during rendering), `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel`, `rerender-error` |
+| `Sidebar` | `sidebar`, `sidebar-fork` (coder only), `sidebar-retry`, `sidebar-rerender` (coder only, when the current run failed during rendering), `sidebar-delete`, `fork-form`, `fork-input`, `fork-submit`, `critique-panel` (critique sidebar only), `error-panel`, `rerender-error`, `node-note-input` / `node-note-save` / `node-note-remove` (only with a saved note) / `node-note-error` — the coder sidebar's Note editor; `node-note-text` replaces them in static mode |
 | `Toolbar` | `toolbar`, `toolbar-seed-root`, `toolbar-batch` |
 | `EventStream` | `event-stream`, `event-row` (with `data-event-kind`) |
 
